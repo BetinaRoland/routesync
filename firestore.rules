@@ -1,0 +1,190 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{db}/documents {
+
+    // Roles live in users/{uid}. There is no server, so these rules are the security of the app.
+    // Admin-only writes cost one rule check each, which is why bulk writes in the app are batched in small groups.
+    function signedIn() { return request.auth != null; }
+    function me() { return get(/databases/$(db)/documents/users/$(request.auth.uid)).data; }
+    function role() { let u = me(); return u.status == 'active' ? u.role : 'none'; }
+    function isAdmin() { return role() in ['superAdmin', 'routeAdmin']; }
+    function isSuper() { return role() == 'superAdmin'; }
+    function isActive() { return role() != 'none'; }
+    function mine() { return signedIn() && resource.data.authUid == request.auth.uid; }
+    function driverOf(busId) { let u = me(); return u.status == 'active' && u.role == 'driver' && u.busId == busId; }
+    function nonAdmin(r) { return r in ['driver', 'student', 'device']; }
+
+    // ---- accounts ----
+    function inviteOk(id, sid) {
+      let i = get(/databases/$(db)/documents/invites/$(id)).data;
+      return i.status == 'pending' && i.email == request.auth.token.email && i.studentId == sid && i.expiresAt > request.time
+        && getAfter(/databases/$(db)/documents/invites/$(id)).data.status == 'used';
+    }
+    function selfRegisters(uid) {
+      let n = request.resource.data;
+      return signedIn() && request.auth.uid == uid && n.role == 'student' && n.status == 'active'
+        && n.keys().hasOnly(['role', 'name', 'email', 'status', 'studentId', 'inviteId', 'createdAt'])
+        && n.email == request.auth.token.email && inviteOk(n.inviteId, n.studentId);
+    }
+    function canWriteUser(oldRole, newRole) {
+      let r = role();
+      return r == 'superAdmin' || (r == 'routeAdmin' && nonAdmin(oldRole) && nonAdmin(newRole));
+    }
+    function canCreateUser(newRole) {
+      let r = role();
+      return r == 'superAdmin' || (r == 'routeAdmin' && nonAdmin(newRole));
+    }
+
+    match /users/{uid} {
+      allow read: if (signedIn() && uid == request.auth.uid) || isAdmin();
+      allow create: if selfRegisters(uid) || canCreateUser(request.resource.data.role);
+      allow update: if canWriteUser(resource.data.role, request.resource.data.role);
+      allow delete: if isSuper();
+    }
+
+    // The invitation id is a hash of the secret code, so only the person holding the code can fetch it.
+    function usesInvite() {
+      return signedIn() && resource.data.status == 'pending' && resource.data.email == request.auth.token.email
+        && request.resource.data.status == 'used' && request.resource.data.usedBy == request.auth.uid
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'usedAt', 'usedBy']);
+    }
+    match /invites/{id} {
+      allow get: if true;
+      allow list, create, delete: if isAdmin();
+      allow update: if usesInvite() || isAdmin();
+    }
+
+    // ---- people ----
+    function selfRegistersStudent(id) {
+      return signedIn() && resource.data.authUid == null && request.resource.data.authUid == request.auth.uid
+        && request.resource.data.registrationStatus == 'registered'
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['authUid', 'registrationStatus', 'registeredAt', 'availableBoardingPointIds'])
+        && (!request.resource.data.diff(resource.data).affectedKeys().hasAny(['availableBoardingPointIds'])
+          || (!resource.data.keys().hasAny(['availableBoardingPointIds'])
+            && request.resource.data.availableBoardingPointIds is list
+            && request.resource.data.availableBoardingPointIds.size() == 0))
+        && getAfter(/databases/$(db)/documents/users/$(request.auth.uid)).data.studentId == id;
+    }
+    match /students/{id} {
+      allow read: if mine() || isAdmin();
+      allow create, delete: if isAdmin();
+      allow update: if selfRegistersStudent(id) || isAdmin();
+    }
+    match /drivers/{id} {
+      allow read: if (signedIn() && id == request.auth.uid) || isAdmin();
+      allow write: if isAdmin();
+    }
+
+    // ---- network ----
+    match /buses/{id}          { allow read: if isActive(); allow write: if isAdmin(); }
+    match /routes/{id}         { allow read: if isActive(); allow write: if isAdmin(); }
+    match /boardingPoints/{id} { allow read: if isActive(); allow write: if isAdmin(); }
+    match /collegeSchedules/{id} { allow read: if isActive(); allow write: if isAdmin(); }
+    match /feePolicies/{id}    { allow read: if isActive(); allow write: if isSuper(); }
+    match /devices/{id}        { allow read, write: if isAdmin(); }
+
+    function studentRequests() {
+      let n = request.resource.data;
+      let u = me();
+      return signedIn() && n.authUid == request.auth.uid && n.status == 'pending' && u.status == 'active' && u.role == 'student' && u.studentId == n.studentId
+        && n.keys().hasOnly(['requestId', 'studentId', 'studentName', 'authUid', 'requestedName', 'requestedLatitude', 'requestedLongitude', 'status', 'isChange', 'submittedAt'])
+        && n.requestedName is string && n.requestedName.size() <= 120 && n.requestedLatitude is number && n.requestedLongitude is number;
+    }
+    match /boardingRequests/{id} {
+      allow read: if mine() || isAdmin();
+      allow create: if false;
+      allow update, delete: if isAdmin();
+    }
+
+    // ---- allocation ----
+    match /allocations/{id} {
+      allow read: if mine() || isAdmin() || driverOf(resource.data.busId);
+      allow write: if isAdmin();
+    }
+    match /changeRequests/{id}  { allow read, write: if isAdmin(); }
+    match /emergencyActions/{id} { allow read, write: if isAdmin(); }
+
+    function studentReserves(id) {
+      let n = request.resource.data;
+      let u = me();
+      return signedIn() && n.authUid == request.auth.uid && n.status == 'reserved' && u.status == 'active' && u.role == 'student'
+        && id == request.auth.uid + '_' + n.date
+        && n.keys().hasOnly(['authUid', 'originalBusId', 'alternativeBusId', 'boardingPointId', 'routeId', 'date', 'status', 'reservedAt'])
+        && get(/databases/$(db)/documents/buses/$(n.alternativeBusId)).data.availability == true;
+    }
+    // Reservations hold no names, only anonymous ids, so riders can count how many seats are taken.
+    match /alternativeBoardings/{id} {
+      allow read: if isActive();
+      allow create: if studentReserves(id);
+      allow delete: if mine() || isAdmin();
+      allow update: if isAdmin();
+    }
+
+    // ---- monitoring ----
+    function driverAlert(id) {
+      let u = me();
+      let n = request.resource.data;
+      return u.status == 'active' && u.role == 'driver' && n.busId == u.busId && n.status == 'open'
+        && n.alertType in ['driver_breakdown', 'driver_delay', 'driver_road_blocked', 'driver_accident', 'driver_other']
+        && id == 'open_' + u.busId + '_' + n.alertType && n.description.size() < 400
+        && n.keys().hasOnly(['alertId', 'busId', 'alertType', 'severity', 'description', 'status', 'createdAt', 'acknowledgedAt', 'acknowledgedBy']);
+    }
+    match /alerts/{id} {
+      allow read: if isAdmin();
+      allow create: if driverAlert(id) || isAdmin();
+      allow update, delete: if isAdmin();
+    }
+    match /alertHistory/{id} { allow read, create: if isAdmin(); }
+
+    function driverJourney(id) {
+      let u = me();
+      let n = request.resource.data;
+      return u.status == 'active' && u.role == 'driver' && n.busId == u.busId && n.journeyId == id && id.matches(u.busId + '_.*')
+        && n.keys().hasOnly(['journeyId', 'busId', 'arrivedAt', 'arrivalBy', 'lateMinutes', 'onTime']);
+    }
+    match /journeys/{id} {
+      allow read: if isAdmin();
+      allow create, update: if driverJourney(id) || isAdmin();
+    }
+
+    // ---- communication ----
+    match /announcements/{id} { allow read: if isActive(); allow write: if isAdmin(); }
+    match /notifications/{id} {
+      allow read: if signedIn() && resource.data.userId == request.auth.uid;
+      allow create: if isAdmin();
+      allow update: if signedIn() && resource.data.userId == request.auth.uid && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['read']);
+    }
+    function studentFeedback() {
+      let n = request.resource.data;
+      let u = me();
+      return signedIn() && n.authUid == request.auth.uid && n.status == 'open' && u.status == 'active' && u.role == 'student' && u.studentId == n.studentId
+        && n.category in ['Bus condition', 'Driver', 'Timing', 'Safety', 'Fees', 'Other'] && n.message.size() >= 5 && n.message.size() <= 1000
+        && n.keys().hasOnly(['feedbackId', 'authUid', 'studentId', 'studentName', 'category', 'message', 'status', 'createdAt', 'reply']);
+    }
+    match /feedback/{id} {
+      allow read: if mine() || isAdmin();
+      allow create: if studentFeedback();
+      allow update: if isAdmin();
+    }
+
+    // ---- settings, money, records ----
+    match /config/{id} {
+      allow read: if id == 'college' ? signedIn() : isActive();
+      allow write: if id == 'operations' ? isAdmin() : isSuper();
+    }
+    match /expenses/{id} {
+      allow read: if isAdmin();
+      allow create, update: if isAdmin()
+        && request.resource.data.amount is number && request.resource.data.amount > 0 && request.resource.data.amount < 100000000
+        && request.resource.data.category in ['Fuel', 'Maintenance', 'Salary', 'Insurance', 'Tolls', 'Other']
+        && request.resource.data.keys().hasOnly(['amount', 'category', 'busId', 'note', 'date', 'createdBy', 'createdAt']);
+      allow delete: if isSuper();
+    }
+    match /auditLogs/{id} {
+      allow read: if isSuper();
+      allow create: if isAdmin();
+    }
+
+    match /{document=**} { allow read, write: if false; }
+  }
+}

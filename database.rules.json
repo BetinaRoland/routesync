@@ -1,0 +1,55 @@
+{
+  "rules": {
+    "admins": {
+      ".read": "auth != null && root.child('admins').child(auth.uid).exists()",
+      "$uid": { ".write": "auth != null && root.child('admins').child(auth.uid).val() === 'super'" }
+    },
+    "busWriters": {
+      ".read": "auth != null && root.child('admins').child(auth.uid).exists()",
+      ".write": "auth != null && root.child('admins').child(auth.uid).exists()"
+    },
+    "riders": {
+      ".read": "auth != null && root.child('admins').child(auth.uid).exists()",
+      ".write": "auth != null && root.child('admins').child(auth.uid).exists()"
+    },
+    "riderStop": {
+      ".read": "auth != null && root.child('admins').child(auth.uid).exists()",
+      ".write": "auth != null && root.child('admins').child(auth.uid).exists()",
+      "$uid": { ".read": "auth != null && auth.uid === $uid" }
+    },
+    "busStops": {
+      ".read": "auth != null && root.child('admins').child(auth.uid).exists()",
+      ".write": "auth != null && root.child('admins').child(auth.uid).exists()"
+    },
+    "alt": {
+      "$busId": {
+        "$uid": {
+          ".read": "auth != null && auth.uid === $uid",
+          ".write": "auth != null && auth.uid === $uid && (!newData.exists() || (newData.isNumber() && newData.val() > now && newData.val() < now + 86400000 && root.child('riderStop').child($uid).exists() && root.child('busStops').child($busId).child(root.child('riderStop').child($uid).val()).val() === true))"
+        }
+      }
+    },
+    "liveLocations": {
+      ".read": "auth != null && root.child('admins').child(auth.uid).exists()",
+      ".write": "auth != null && root.child('admins').child(auth.uid).exists()",
+      "$busId": {
+        ".read": "auth != null && (root.child('riders').child($busId).child(auth.uid).val() === true || root.child('alt').child($busId).child(auth.uid).val() > now)",
+        ".write": "auth != null && root.child('busWriters').child($busId).child(auth.uid).val() === true",
+        ".validate": "newData.hasChildren(['lat', 'lng', 'ts'])",
+        "lat": { ".validate": "newData.isNumber() && newData.val() >= -90 && newData.val() <= 90" },
+        "lng": { ".validate": "newData.isNumber() && newData.val() >= -180 && newData.val() <= 180" },
+        "ts": { ".validate": "newData.isNumber() && newData.val() <= now + 120000 && newData.val() > now - 300000" },
+        "$other": { ".validate": true }
+      }
+    },
+    "history": {
+      ".read": "auth != null && root.child('admins').child(auth.uid).exists()",
+      "$busId": {
+        "$date": {
+          ".write": "auth != null && (root.child('busWriters').child($busId).child(auth.uid).val() === true || root.child('admins').child(auth.uid).exists())",
+          "$ts": { ".validate": "newData.hasChildren(['lat', 'lng'])" }
+        }
+      }
+    }
+  }
+}

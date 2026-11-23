@@ -1,0 +1,5 @@
+
+registerNumber,name,departmentId,academicYear,email,mobile
+21CS001,Asha Raman,CSE,3,asha.raman@example.com,9876543210
+21EC014,Kabir Nair,ECE,3,kabir.nair@example.com,5967332754
+22ME027,Meera Joseph,MECH,2,meera.joseph@example.com,9123456780

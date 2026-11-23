@@ -1,0 +1,6 @@
+Add to ios/Runner/Info.plist:
+  NSLocationWhenInUseUsageDescription = RouteSync shares this bus's position with the college.
+  NSLocationAlwaysAndWhenInUseUsageDescription = RouteSync keeps sharing the bus position while the screen is off.
+  NSCameraUsageDescription = RouteSync scans your invitation QR code.
+Xcode: Runner > Signing & Capabilities > Background Modes > Location updates, and Push Notifications.
+Set CFBundleDisplayName to RouteSync.
