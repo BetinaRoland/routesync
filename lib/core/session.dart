@@ -14,10 +14,13 @@ class Session {
   /// Reads this person's record. A brand-new student account may need a moment while registration finishes.
   static Future<Session> load(User user) async {
     Map<String, dynamic>? x;
-    final fresh = user.metadata.creationTime != null && DateTime.now().difference(user.metadata.creationTime!).inMinutes < 3;
+    final fresh =
+        user.metadata.creationTime != null &&
+        DateTime.now().difference(user.metadata.creationTime!).inMinutes < 3;
     for (var i = 0; i < (fresh ? 6 : 1); i++) {
       try {
-        x = (await FirebaseFirestore.instance.doc('users/${user.uid}').get()).data();
+        x = (await FirebaseFirestore.instance.doc('users/${user.uid}').get())
+            .data();
       } catch (_) {
         x = null;
       }
@@ -25,7 +28,8 @@ class Session {
       await Future.delayed(const Duration(milliseconds: 700));
     }
     if (x == null) return Session(user, Role.unknown, '', null, false);
-    if (x['status'] != 'active') return Session(user, Role.unknown, '${x['name'] ?? ''}', null, true);
+    if (x['status'] != 'active')
+      return Session(user, Role.unknown, '${x['name'] ?? ''}', null, true);
     final role = switch (x['role']) {
       'superAdmin' => Role.superAdmin,
       'routeAdmin' => Role.routeAdmin,
@@ -33,6 +37,12 @@ class Session {
       'student' => Role.student,
       _ => Role.unknown,
     };
-    return Session(user, role, '${x['name'] ?? ''}', x['busId'] as String?, false);
+    return Session(
+      user,
+      role,
+      '${x['name'] ?? ''}',
+      x['busId'] as String?,
+      false,
+    );
   }
 }

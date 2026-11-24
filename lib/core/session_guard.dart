@@ -1,6 +1,6 @@
 import 'dart:async';
 import 'package:firebase_auth/firebase_auth.dart';
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'session.dart';
 
 /// Signs the user out when their sign-in is older than the limit for their role
@@ -17,10 +17,10 @@ class _SessionGuardState extends State<SessionGuard> {
   Timer? _t;
 
   int get _maxHours => switch (widget.role) {
-        Role.superAdmin || Role.routeAdmin => 12,
-        Role.driver => 24,
-        _ => 72,
-      };
+    Role.superAdmin || Role.routeAdmin => 12,
+    Role.driver => 24,
+    _ => 72,
+  };
 
   @override
   void initState() {
@@ -40,7 +40,8 @@ class _SessionGuardState extends State<SessionGuard> {
       final user = FirebaseAuth.instance.currentUser;
       if (user == null) return;
       final at = (await user.getIdTokenResult()).authTime;
-      if (at != null && DateTime.now().difference(at).inHours >= _maxHours) await FirebaseAuth.instance.signOut();
+      if (at != null && DateTime.now().difference(at).inHours >= _maxHours)
+        await FirebaseAuth.instance.signOut();
     } catch (_) {}
   }
 

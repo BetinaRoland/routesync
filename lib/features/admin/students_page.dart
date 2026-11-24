@@ -2,7 +2,7 @@ import 'dart:convert';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:csv/csv.dart';
 import 'package:file_picker/file_picker.dart';
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import '../../core/api.dart';
 import '../../core/widgets.dart';
 
@@ -399,20 +399,107 @@ class ImportPage extends StatefulWidget {
   State<ImportPage> createState() => _ImportPageState();
 }
 
+class _CsvDraft {
+  final String fileName;
+  final List<String> headers;
+  final List<List<dynamic>> rows;
+  final Map<String, int?> mapping;
+
+  const _CsvDraft({
+    required this.fileName,
+    required this.headers,
+    required this.rows,
+    required this.mapping,
+  });
+
+  List<Map<String, dynamic>> mappedRows() => [
+    for (final row in rows)
+      {
+        for (final entry in mapping.entries)
+          if (entry.value != null &&
+              entry.value! < row.length &&
+              '${row[entry.value!]}'.trim().isNotEmpty)
+            entry.key: '${row[entry.value!]}'.trim(),
+      },
+  ];
+}
+
 class _ImportPageState extends State<ImportPage> {
-  List<Map<String, dynamic>> _rows = [];
-  String? _fileName;
+  _CsvDraft? _buses;
+  _CsvDraft? _students;
   Map<String, dynamic>? _check;
   List<Map<String, dynamic>> _invites = [];
   bool _busy = false;
+  String _duplicatePolicy = 'skip';
 
-  Future<void> _pick() async {
+  static const _busFields = <String, String>{
+    'busId': 'Bus ID',
+    'busNumber': 'Bus number',
+    'registrationNumber': 'Registration number',
+    'capacity': 'Seating capacity',
+    'routeId': 'Existing route ID',
+    'driverId': 'Existing driver ID',
+    'permittedRegionId': 'Permitted region ID',
+    'status': 'Bus status',
+  };
+  static const _studentFields = <String, String>{
+    'registerNumber': 'Register / roll number',
+    'name': 'Student name',
+    'departmentId': 'Department',
+    'academicYear': 'Academic year (1-6)',
+    'email': 'Email',
+    'mobile': 'Mobile (optional)',
+    'place': 'Place (optional)',
+    'busId': 'Bus ID (optional)',
+    'busNumber': 'Bus number (optional)',
+    'routeId': 'Existing route ID (optional)',
+    'driverId': 'Existing driver ID (optional)',
+    'boardingPointId': 'Existing boarding-point ID (optional)',
+  };
+  static const _aliases = <String, List<String>>{
+    'busId': ['busid', 'assignedbusid'],
+    'busNumber': ['busnumber', 'busno', 'busnum'],
+    'registrationNumber': [
+      'registrationnumber',
+      'regnumber',
+      'vehicleregistration',
+    ],
+    'capacity': ['capacity', 'seatingcapacity', 'seatcapacity'],
+    'routeId': ['routeid'],
+    'driverId': ['driverid'],
+    'permittedRegionId': ['permittedregionid', 'regionid'],
+    'status': ['status', 'busstatus', 'activeinactivestatus'],
+    'registerNumber': ['registernumber', 'rollnumber', 'studentid'],
+    'name': ['name', 'studentname', 'fullname'],
+    'departmentId': ['departmentid', 'department', 'course'],
+    'academicYear': ['academicyear', 'year', 'classyear'],
+    'email': ['email', 'emailaddress'],
+    'mobile': ['mobile', 'mobilenumber', 'phone', 'contactnumber'],
+    'place': ['place', 'region', 'address'],
+    'boardingPointId': ['boardingpointid', 'stopid'],
+  };
+
+  String _normalized(String value) => value
+      .toLowerCase()
+      .replaceAll('\ufeff', '')
+      .replaceAll(RegExp(r'[^a-z0-9]'), '');
+
+  Future<void> _pick(bool buses) async {
     final r = await FilePicker.platform.pickFiles(
       type: FileType.custom,
       allowedExtensions: ['csv'],
       withData: true,
     );
     if (r == null || r.files.single.bytes == null) return;
+    final expectedName = buses ? 'buses.csv' : 'students.csv';
+    if (r.files.single.name.toLowerCase() != expectedName) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Choose the exact file $expectedName.')),
+        );
+      }
+      return;
+    }
     final text = utf8
         .decode(r.files.single.bytes!, allowMalformed: true)
         .replaceAll('\r\n', '\n')
@@ -429,52 +516,138 @@ class _ImportPageState extends State<ImportPage> {
       }
       return;
     }
-    final head = table.first
-        .map((h) => '$h'.trim().toLowerCase().replaceAll('\ufeff', ''))
+    final headers = table.first.map((value) => '$value'.trim()).toList();
+    final rawRows = table
+        .skip(1)
+        .where((row) => row.any((value) => '$value'.trim().isNotEmpty))
+        .map((row) => List<dynamic>.from(row))
         .toList();
-    const keys = {
-      'registernumber': 'registerNumber',
-      'name': 'name',
-      'departmentid': 'departmentId',
-      'department': 'departmentId',
-      'academicyear': 'academicYear',
-      'year': 'academicYear',
-      'email': 'email',
-      'mobile': 'mobile',
-    };
-    final rows = <Map<String, dynamic>>[];
-    for (final line in table.skip(1)) {
-      if (line.every((v) => '$v'.trim().isEmpty)) continue;
-      final m = <String, dynamic>{};
-      for (var i = 0; i < head.length && i < line.length; i++) {
-        final k = keys[head[i]];
-        if (k != null) m[k] = '${line[i]}'.trim();
-      }
-      rows.add(m);
+    final fields = buses ? _busFields : _studentFields;
+    final mapping = <String, int?>{};
+    for (final field in fields.keys) {
+      final aliases = _aliases[field] ?? [field.toLowerCase()];
+      final index = headers.indexWhere(
+        (header) => aliases.contains(_normalized(header)),
+      );
+      mapping[field] = index < 0 ? null : index;
     }
+    final draft = _CsvDraft(
+      fileName: r.files.single.name,
+      headers: headers,
+      rows: rawRows,
+      mapping: mapping,
+    );
     setState(() {
-      _rows = rows;
-      _fileName = r.files.single.name;
+      if (buses) {
+        _buses = draft;
+      } else {
+        _students = draft;
+      }
       _check = null;
       _invites = [];
     });
     await _run(true);
   }
 
+  void _mapColumn(bool buses, String field, int? index) {
+    final source = buses ? _buses : _students;
+    if (source == null) return;
+    final next = _CsvDraft(
+      fileName: source.fileName,
+      headers: source.headers,
+      rows: source.rows,
+      mapping: {...source.mapping, field: index},
+    );
+    setState(() {
+      if (buses) {
+        _buses = next;
+      } else {
+        _students = next;
+      }
+      _check = null;
+    });
+  }
+
+  List<Widget> _mappingFields(bool buses, _CsvDraft? source) {
+    if (source == null) return const [];
+    final fields = buses ? _busFields : _studentFields;
+    return [
+      ExpansionTile(
+        title: Text('Map ${buses ? 'bus' : 'student'} columns'),
+        children: [
+          for (final entry in fields.entries)
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16),
+              child: DropdownButtonFormField<int?>(
+                initialValue: source.mapping[entry.key],
+                decoration: InputDecoration(labelText: entry.value),
+                items: [
+                  const DropdownMenuItem<int?>(
+                    value: null,
+                    child: Text('Not mapped'),
+                  ),
+                  for (var index = 0; index < source.headers.length; index++)
+                    DropdownMenuItem<int?>(
+                      value: index,
+                      child: Text(
+                        source.headers[index].isEmpty
+                            ? 'Column ${index + 1}'
+                            : source.headers[index],
+                      ),
+                    ),
+                ],
+                onChanged: _busy
+                    ? null
+                    : (index) => _mapColumn(buses, entry.key, index),
+              ),
+            ),
+          const SizedBox(height: 8),
+        ],
+      ),
+    ];
+  }
+
   Future<void> _run(bool dry) async {
+    if (_buses == null && _students == null) return;
+    var confirmedUpdates = false;
+    if (!dry && _duplicatePolicy == 'update') {
+      confirmedUpdates =
+          await showDialog<bool>(
+            context: context,
+            builder: (context) => AlertDialog(
+              title: const Text('Confirm updates'),
+              content: const Text(
+                'Existing bus and student roster fields may be updated. Existing student allocations and account IDs will be preserved. Continue?',
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.pop(context, false),
+                  child: const Text('Cancel'),
+                ),
+                FilledButton(
+                  onPressed: () => Navigator.pop(context, true),
+                  child: const Text('Confirm updates'),
+                ),
+              ],
+            ),
+          ) ??
+          false;
+      if (!confirmedUpdates) return;
+    }
+    if (!mounted) return;
     setState(() => _busy = true);
     await runAction(context, () async {
-      final r = await Api.call('importStudents', {
-        'rows': _rows,
+      final result = await Api.call('importCollegeData', {
+        'busRows': _buses?.mappedRows() ?? const [],
+        'studentRows': _students?.mappedRows() ?? const [],
         'dryRun': dry,
+        'duplicatePolicy': _duplicatePolicy,
+        'confirmedUpdates': confirmedUpdates,
       });
-      if (dry) {
-        _check = r;
-        return null;
-      }
-      _invites = asList(r['invites']);
-      _check = {'valid': 0, 'errors': r['errors']};
-      return 'Imported ${r['imported']} students.';
+      _check = result;
+      if (dry) return null;
+      _invites = asList(result['invites']);
+      return 'Imported ${result['importedBuses'] ?? 0} buses and ${result['importedStudents'] ?? 0} students; created ${result['createdAllocations'] ?? 0} allocations.';
     });
     if (mounted) setState(() => _busy = false);
   }
@@ -482,51 +655,202 @@ class _ImportPageState extends State<ImportPage> {
   @override
   Widget build(BuildContext context) {
     final errors = asList(_check?['errors']);
-    final valid = (_check?['valid'] as num?)?.toInt() ?? 0;
+    final validBuses = (_check?['validBuses'] as num?)?.toInt() ?? 0;
+    final validStudents = (_check?['validStudents'] as num?)?.toInt() ?? 0;
+    final allocations = (_check?['allocations'] as num?)?.toInt() ?? 0;
+    final notAllocated = asList(_check?['notAllocatedRows']);
     return ListView(
       padding: const EdgeInsets.all(16),
       children: [
+        Row(
+          children: [
+            const Text('Duplicates'),
+            const SizedBox(width: 12),
+            DropdownButton<String>(
+              value: _duplicatePolicy,
+              items: const [
+                DropdownMenuItem(value: 'skip', child: Text('Skip')),
+                DropdownMenuItem(value: 'update', child: Text('Update')),
+              ],
+              onChanged: _busy
+                  ? null
+                  : (value) =>
+                        setState(() => _duplicatePolicy = value ?? 'skip'),
+            ),
+          ],
+        ),
         const Text(
-          'Upload a CSV with these columns: registerNumber, name, departmentId, academicYear, email, mobile (optional). From Excel, use Save as CSV. Big files take a minute to write.',
+          'Import buses.csv and students.csv only. Column mappings are editable. New students are roster records; an active allocation is created only when an existing account, bus, route, driver and approved boarding point all validate.',
         ),
         const SizedBox(height: 12),
-        FilledButton.icon(
-          onPressed: _busy ? null : _pick,
-          icon: const Icon(Icons.upload_file),
-          label: Text(
-            _fileName == null ? 'Choose CSV file' : 'Choose another file',
-          ),
+        Wrap(
+          spacing: 12,
+          runSpacing: 8,
+          children: [
+            OutlinedButton.icon(
+              onPressed: _busy ? null : () => _pick(true),
+              icon: const Icon(Icons.directions_bus),
+              label: Text(
+                _buses == null ? 'Choose buses.csv' : 'Replace buses.csv',
+              ),
+            ),
+            OutlinedButton.icon(
+              onPressed: _busy ? null : () => _pick(false),
+              icon: const Icon(Icons.people),
+              label: Text(
+                _students == null
+                    ? 'Choose students.csv'
+                    : 'Replace students.csv',
+              ),
+            ),
+            FilledButton.tonal(
+              onPressed: _busy || (_buses == null && _students == null)
+                  ? null
+                  : () => _run(true),
+              child: const Text('Preview import'),
+            ),
+          ],
         ),
-        if (_fileName != null)
-          Padding(
-            padding: const EdgeInsets.only(top: 12),
-            child: Text('$_fileName: ${_rows.length} rows read'),
+        if (_buses != null) ...[
+          ListTile(
+            contentPadding: EdgeInsets.zero,
+            leading: const Icon(Icons.directions_bus),
+            title: Text(_buses!.fileName),
+            subtitle: Text('${_buses!.rows.length} rows'),
           ),
-        if (_check != null && _invites.isEmpty) ...[
+          ..._mappingFields(true, _buses),
+        ],
+        if (_students != null) ...[
+          ListTile(
+            contentPadding: EdgeInsets.zero,
+            leading: const Icon(Icons.people),
+            title: Text(_students!.fileName),
+            subtitle: Text('${_students!.rows.length} rows'),
+          ),
+          ..._mappingFields(false, _students),
+          ExpansionTile(
+            title: const Text('Student row preview (first 5)'),
+            children: [
+              for (final row in _students!.mappedRows().take(5))
+                ListTile(
+                  dense: true,
+                  title: Text(
+                    '${row['registerNumber'] ?? 'Missing register number'} - '
+                    '${row['name'] ?? 'Missing name'}',
+                  ),
+                  subtitle: Text(
+                    '${row['departmentId'] ?? ''}, year ${row['academicYear'] ?? ''}; '
+                    'email ${row['email'] ?? ''}; bus '
+                    '${row['busId'] ?? row['busNumber'] ?? 'not provided'}; '
+                    'boarding point ${row['boardingPointId'] ?? 'not provided'}',
+                  ),
+                ),
+            ],
+          ),
+        ],
+        if (_buses != null) ...[
+          ExpansionTile(
+            title: const Text('Bus row preview (first 5)'),
+            children: [
+              for (final row in _buses!.mappedRows().take(5))
+                ListTile(
+                  dense: true,
+                  title: Text(
+                    'Bus ${row['busNumber'] ?? 'missing number'} '
+                    '(${row['busId'] ?? 'ID derived from number'})',
+                  ),
+                  subtitle: Text(
+                    'Capacity ${row['capacity'] ?? 'missing'}; '
+                    'route ${row['routeId'] ?? 'not provided'}; '
+                    'driver ${row['driverId'] ?? 'not provided'}',
+                  ),
+                ),
+            ],
+          ),
+        ],
+        if (_check != null) ...[
           const SizedBox(height: 12),
           Text(
-            '$valid ready to import, ${errors.length} with problems',
+            _check!['dryRun'] == true
+                ? '$validBuses buses and $validStudents students ready; '
+                      '$allocations active allocations qualify; '
+                      '${notAllocated.length} students will remain Not Allocated; '
+                      '${errors.length} validation issues'
+                : 'Import complete: ${_check!['importedBuses'] ?? 0} buses, '
+                      '${_check!['importedStudents'] ?? 0} students, '
+                      '${_check!['createdAllocations'] ?? 0} allocations; '
+                      '${notAllocated.length} students Not Allocated; '
+                      '${errors.length} validation issues',
             style: const TextStyle(fontWeight: FontWeight.bold),
           ),
+          for (final row in notAllocated.take(50))
+            ListTile(
+              dense: true,
+              leading: const Icon(Icons.info_outline),
+              title: Text('${row['studentId'] ?? 'Line ${row['line']}'}'),
+              subtitle: Text('${row['reason']}'),
+            ),
           for (final e in errors.take(50))
             ListTile(
               dense: true,
               leading: const Icon(Icons.error_outline, color: Colors.red),
-              title: Text('${e['registerNumber'] ?? 'Line ${e['line']}'}'),
+              title: Text(
+                '${e['registerNumber'] ?? e['id'] ?? 'Line ${e['line']}'}',
+              ),
               subtitle: Text('${e['error']}'),
             ),
-          if (valid > 0)
+          if (errors.isNotEmpty || notAllocated.isNotEmpty)
+            OutlinedButton.icon(
+              onPressed: () => copyCsv(
+                context,
+                [
+                  'category',
+                  'line',
+                  'id',
+                  'registerNumber',
+                  'warning',
+                  'error',
+                ],
+                [
+                  for (final e in errors)
+                    [
+                      e['category'],
+                      e['line'],
+                      e['id'],
+                      e['registerNumber'],
+                      e['warning'] ?? false,
+                      e['error'],
+                    ],
+                  for (final e in notAllocated)
+                    [
+                      'student',
+                      e['line'],
+                      e['studentId'],
+                      e['registerNumber'],
+                      false,
+                      e['reason'],
+                    ],
+                ],
+              ),
+              icon: const Icon(Icons.copy),
+              label: const Text('Copy validation report as CSV'),
+            ),
+          if (_check!['dryRun'] == true && validBuses + validStudents > 0)
             Padding(
               padding: const EdgeInsets.only(top: 12),
               child: FilledButton(
                 onPressed: _busy ? null : () => _run(false),
-                child: Text(_busy ? 'Importing...' : 'Import $valid students'),
+                child: Text(
+                  _busy
+                      ? 'Importing...'
+                      : 'Import $validBuses buses and $validStudents students',
+                ),
               ),
             ),
           const Padding(
             padding: EdgeInsets.only(top: 8),
             child: Text(
-              'Rows with problems are skipped. Fix them in the file and import again.',
+              'Invalid roster rows are skipped. Valid roster rows remain separate from active allocations if any relationship is missing or invalid. Existing allocations are preserved.',
             ),
           ),
         ],

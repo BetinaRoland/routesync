@@ -1,5 +1,5 @@
 import 'dart:async';
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import '../core/api.dart';
 
 /// Arrival time to the rider's stop by road. Refreshes every 30 seconds. No live traffic is included.
@@ -34,7 +34,11 @@ class _EtaBadgeState extends State<EtaBadge> {
       if (r['available'] == true) {
         final m = (r['minutes'] as num).toInt();
         final km = (r['km'] as num).toDouble();
-        text = km <= 1.2 ? 'Bus is nearby: about ${m <= 1 ? 'a minute' : '$m min'} to your stop' : (m <= 1 ? 'Arriving now' : 'About $m min to your stop (${km.toStringAsFixed(1)} km by road)');
+        text = km <= 1.2
+            ? 'Bus is nearby: about ${m <= 1 ? 'a minute' : '$m min'} to your stop'
+            : (m <= 1
+                  ? 'Arriving now'
+                  : 'About $m min to your stop (${km.toStringAsFixed(1)} km by road)');
       } else {
         text = '${r['reason'] ?? 'Arrival time unavailable'}';
       }
@@ -46,11 +50,22 @@ class _EtaBadgeState extends State<EtaBadge> {
 
   @override
   Widget build(BuildContext context) => Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-        child: Row(children: [
-          Icon(Icons.schedule, size: 18, color: Theme.of(context).colorScheme.outline),
-          const SizedBox(width: 8),
-          Expanded(child: Text('$_text. Estimate only.', style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w500))),
-        ]),
-      );
+    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+    child: Row(
+      children: [
+        Icon(
+          Icons.schedule,
+          size: 18,
+          color: Theme.of(context).colorScheme.outline,
+        ),
+        const SizedBox(width: 8),
+        Expanded(
+          child: Text(
+            '$_text. Estimate only.',
+            style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w500),
+          ),
+        ),
+      ],
+    ),
+  );
 }

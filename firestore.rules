@@ -80,6 +80,10 @@ service cloud.firestore {
     match /routes/{id}         { allow read: if isActive(); allow write: if isAdmin(); }
     match /boardingPoints/{id} { allow read: if isActive(); allow write: if isAdmin(); }
     match /collegeSchedules/{id} { allow read: if isActive(); allow write: if isAdmin(); }
+    match /transportTemplates/{id} { allow read, write: if isAdmin(); }
+    match /dailyTransportSchedules/{id} { allow read, write: if isAdmin(); }
+    match /academicRolloverHistory/{id} { allow read: if isAdmin(); allow create: if isAdmin(); allow update, delete: if false; }
+    match /importHistory/{id} { allow read: if isAdmin(); allow create: if isAdmin(); allow update, delete: if false; }
     match /feePolicies/{id}    { allow read: if isActive(); allow write: if isSuper(); }
     match /devices/{id}        { allow read, write: if isAdmin(); }
 

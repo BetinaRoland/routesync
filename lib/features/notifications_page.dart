@@ -1,6 +1,6 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import '../core/widgets.dart';
 
 /// Personal notifications. Students and drivers also see recent announcements for everyone, their role or their bus.

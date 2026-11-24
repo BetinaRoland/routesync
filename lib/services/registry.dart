@@ -5,16 +5,39 @@ import 'emergency.dart' as e;
 import 'insights.dart' as i;
 import 'network.dart' as n;
 import 'people.dart' as p;
+import 'planning.dart' as planning;
 
 /// Every action the screens can ask for. Names match the old server functions so the screens did not need to change.
 Future<M> runService(String name, M d) {
   switch (name) {
+    case 'previewAcademicRollover':
+      return planning.previewAcademicRollover(d);
+    case 'applyAcademicRollover':
+      return planning.applyAcademicRollover(d);
+    case 'saveTransportTemplate':
+      return planning.saveTransportTemplate(d);
+    case 'duplicateTransportTemplate':
+      return planning.duplicateTransportTemplate(d);
+    case 'setTransportTemplateActive':
+      return planning.setTransportTemplateActive(d);
+    case 'saveDailyTransportPlan':
+      return planning.saveDailyTransportPlan(d);
     case 'previewInvite':
       return p.previewInvite(d);
     case 'redeemInvite':
       return p.redeemInvite(d);
     case 'importStudents':
-      return p.importStudents(d);
+      return p.importCollegeData({
+        'busRows': const [],
+        'studentRows': d['rows'] ?? const [],
+        'dryRun': d['dryRun'],
+        'duplicatePolicy': d['duplicatePolicy'],
+        'confirmedUpdates': d['confirmedUpdates'],
+      });
+    case 'importTransportData':
+      return p.importBusesData(d);
+    case 'importCollegeData':
+      return p.importCollegeData(d);
     case 'reissueInvite':
       return p.reissueInvite(d);
     case 'updateStudent':

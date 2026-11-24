@@ -58,7 +58,8 @@ class DefaultFirebaseOptions {
     messagingSenderId: '792785411107',
     projectId: 'routesync-94a88',
     authDomain: 'routesync-94a88.firebaseapp.com',
-    databaseURL: 'https://routesync-94a88-default-rtdb.asia-southeast1.firebasedatabase.app',
+    databaseURL:
+        'https://routesync-94a88-default-rtdb.asia-southeast1.firebasedatabase.app',
     storageBucket: 'routesync-94a88.firebasestorage.app',
     measurementId: 'G-542VS1R4YN',
   );

@@ -1,5 +1,5 @@
 import 'package:firebase_auth/firebase_auth.dart';
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import '../../core/session.dart';
 import '../../core/widgets.dart';
 import '../live_map.dart';
@@ -15,6 +15,7 @@ import 'ops_pages.dart';
 import 'overview_page.dart';
 import 'reports_pages.dart';
 import 'students_page.dart';
+import 'planning_page.dart';
 import 'super_pages.dart';
 
 class _Item {
@@ -187,6 +188,10 @@ class _AdminShellState extends State<AdminShell> {
           key: _schedulesKey,
           tabs: const [
             _WorkspaceTab('Schedules', SchedulesPage()),
+            _WorkspaceTab(
+              'Daily Transport Planning',
+              DailyTransportPlanningPage(),
+            ),
             _WorkspaceTab('Tracking hours', HoursPage()),
           ],
         ),
