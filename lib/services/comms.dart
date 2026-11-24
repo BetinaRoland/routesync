@@ -11,8 +11,7 @@ Future<M> sendAnnouncement(M d) async {
   if (title.isEmpty || body.isEmpty || title.length > 80 || body.length > 500) {
     fail('Add a title (up to 80 characters) and a message (up to 500).');
   }
-  if (!['all', 'students', 'drivers'].contains(audience) &&
-      !audience.startsWith('bus:')) {
+  if (!['all', 'students', 'drivers', 'running_buses'].contains(audience)) {
     fail('Unknown audience.');
   }
   final ref = fs.collection('announcements').doc();
@@ -151,11 +150,13 @@ Future<M> getMyTransport(M d) async {
       'passengers': al.docs.length,
       'alternatePassengers': alt.count ?? 0,
       'routeName': route?['routeName'],
-      'stops': stops,
-      'trackingStatus': bus['trackingStatus'],
       'arrivalBy': route?['arrivalBy'],
+      'stops': stops,
+      'routeGeometry': route?['routeGeometry'] ?? [],
+      'trackingStatus': bus['trackingStatus'],
       'trackingStart': conf['trackingStart'],
       'trackingEnd': conf['trackingEnd'],
+      'gpsStaleSeconds': conf['gpsStaleSeconds'],
       'workingToday': await isWorkingDay(),
     };
   }
@@ -165,7 +166,10 @@ Future<M> getMyTransport(M d) async {
       ? null
       : (await fs.doc('boardingPoints/${s['approvedBoardingPointId']}').get())
             .data();
-  final bp = selectedBp != null && selectedBp['approvalStatus'] == 'approved'
+  final bp =
+      selectedBp != null &&
+          selectedBp['approvalStatus'] == 'approved' &&
+          selectedBp['status'] != 'inactive'
       ? selectedBp
       : null;
   final fee = bp == null || bp['roadDistanceKm'] is! num
@@ -178,10 +182,16 @@ Future<M> getMyTransport(M d) async {
     'fee': fee,
     'boardingPoint': bp == null
         ? null
-        : {'name': bp['name'], 'lat': bp['latitude'], 'lng': bp['longitude']},
+        : {
+            'id': s['approvedBoardingPointId'],
+            'name': bp['name'],
+            'lat': bp['latitude'],
+            'lng': bp['longitude'],
+          },
     'allocated': false,
     'trackingStart': conf['trackingStart'],
     'trackingEnd': conf['trackingEnd'],
+    'gpsStaleSeconds': conf['gpsStaleSeconds'],
   };
   if (s['allocationId'] != null) {
     final a = (await fs.doc('allocations/${s['allocationId']}').get()).data();
@@ -195,10 +205,46 @@ Future<M> getMyTransport(M d) async {
         'routeName': route?['routeName'],
         'arrivalBy': route?['arrivalBy'],
         'stops': await _stops(route),
+        'routeGeometry': route?['routeGeometry'] ?? [],
+        'trackingStatus': bus['trackingStatus'],
         'driver': bus['driverName'] == null
             ? null
             : {'name': bus['driverName'], 'contact': bus['driverContact']},
       });
+    }
+  }
+  final alternative =
+      (await fs.doc('alternativeBoardings/${c.uid}_${dateKey()}').get()).data();
+  final alternativeBusId = alternative?['alternativeBusId'];
+  if (out['allocated'] == true &&
+      alternative?['status'] == 'reserved' &&
+      alternative?['date'] == dateKey() &&
+      alternative?['originalBusId'] == out['busId'] &&
+      alternativeBusId is String &&
+      alternativeBusId.isNotEmpty) {
+    final bus = (await fs.doc('buses/$alternativeBusId').get()).data();
+    if (bus != null &&
+        bus['availability'] == true &&
+        bus['maintenanceStatus'] == 'ok') {
+      final route = bus['routeId'] == null
+          ? null
+          : (await fs.doc('routes/${bus['routeId']}').get()).data();
+      out['alternativeTransport'] = {
+        'busId': alternativeBusId,
+        'busNumber': bus['busNumber'],
+        'trackingStatus': bus['trackingStatus'],
+        'routeName': route?['routeName'],
+        'arrivalBy': route?['arrivalBy'],
+        'stops': await _stops(route),
+        'routeGeometry': route?['routeGeometry'] ?? [],
+        'driver': bus['driverName'] == null
+            ? null
+            : {'name': bus['driverName'], 'contact': bus['driverContact']},
+        'boardingPoint': out['boardingPoint'],
+        'trackingStart': conf['trackingStart'],
+        'trackingEnd': conf['trackingEnd'],
+        'gpsStaleSeconds': conf['gpsStaleSeconds'],
+      };
     }
   }
   return out;

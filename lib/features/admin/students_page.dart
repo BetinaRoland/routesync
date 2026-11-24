@@ -124,7 +124,11 @@ class _StudentsPageState extends State<StudentsPage> {
         .get();
     if (!mounted) return;
     final approved = snap.docs
-        .where((p) => p.data()['approvalStatus'] == 'approved')
+        .where(
+          (p) =>
+              p.data()['approvalStatus'] == 'approved' &&
+              p.data()['status'] != 'inactive',
+        )
         .toList();
     final s = d.data();
     final assigned = ((s['availableBoardingPointIds'] as List?) ?? [])

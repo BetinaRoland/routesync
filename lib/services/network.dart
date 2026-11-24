@@ -1,7 +1,162 @@
+import 'dart:convert';
+
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:http/http.dart' as http;
 import 'common.dart';
+import '../core/logic.dart' show haversineM;
 
 int _int(Object? v) => v is num ? v.toInt() : (int.tryParse('$v') ?? 0);
+
+const defaultBoardingPointDuplicateDistanceMeters = 150;
+DateTime? _lastPlaceRequest;
+
+String _firstText(Iterable<Object?> values) {
+  for (final value in values) {
+    final text = '$value'.trim();
+    if (text.isNotEmpty && text.toLowerCase() != 'null') return text;
+  }
+  return '';
+}
+
+M boardingPointPlace(Map<String, dynamic> raw, {required String fallback}) {
+  final address = raw['address'] is Map
+      ? Map<String, dynamic>.from(raw['address'] as Map)
+      : <String, dynamic>{};
+  final named = raw['namedetails'] is Map
+      ? Map<String, dynamic>.from(raw['namedetails'] as Map)
+      : <String, dynamic>{};
+  final name = _firstText([
+    raw['name'],
+    named['name'],
+    address['amenity'],
+    address['public_transport'],
+    address['station'],
+    address['leisure'],
+    address['shop'],
+    address['tourism'],
+    address['building'],
+    address['road'],
+    address['suburb'],
+    address['town'],
+    address['city'],
+  ]);
+  return {
+    'name': name.isEmpty ? fallback : name,
+    'address': '${raw['display_name'] ?? ''}'.trim(),
+    'district': _firstText([
+      address['state_district'],
+      address['district'],
+      address['county'],
+      address['city'],
+      address['town'],
+    ]),
+  };
+}
+
+double boardingPointDistanceMeters(
+  double latitude,
+  double longitude,
+  double otherLatitude,
+  double otherLongitude,
+) => haversineM(latitude, longitude, otherLatitude, otherLongitude);
+
+Future<void> _waitForPlaceRequestSlot() async {
+  final last = _lastPlaceRequest;
+  if (last != null) {
+    final wait =
+        const Duration(milliseconds: 1100) - DateTime.now().difference(last);
+    if (wait > Duration.zero) await Future<void>.delayed(wait);
+  }
+  _lastPlaceRequest = DateTime.now();
+}
+
+Future<dynamic> _nominatim(Uri uri) async {
+  await _waitForPlaceRequestSlot();
+  try {
+    final response = await http
+        .get(
+          uri,
+          headers: const {
+            'Accept': 'application/json',
+            'Accept-Language': 'en',
+            'User-Agent': 'RouteSync/1.0 (college transport app)',
+          },
+        )
+        .timeout(const Duration(seconds: 15));
+    if (response.statusCode != 200) {
+      fail('Location search is temporarily unavailable. Please try again.');
+    }
+    return jsonDecode(response.body);
+  } on Fail {
+    rethrow;
+  } catch (_) {
+    fail(
+      'Could not reach the location service. Check your internet and retry.',
+    );
+  }
+}
+
+Future<M> searchBoardingPlaces(M d) async {
+  await need(adminRoles);
+  final query = '${d['query'] ?? ''}'.trim();
+  if (query.length < 3) fail('Enter at least 3 letters to search.');
+  final result = await _nominatim(
+    Uri.https('nominatim.openstreetmap.org', '/search', {
+      'format': 'jsonv2',
+      'addressdetails': '1',
+      'namedetails': '1',
+      'limit': '6',
+      'q': query,
+    }),
+  );
+  if (result is! List) {
+    fail('The location service returned an unexpected result.');
+  }
+  return {
+    'places': [
+      for (final item in result)
+        if (item is Map) _parseSearchPlace(Map<String, dynamic>.from(item)),
+    ],
+  };
+}
+
+M _parseSearchPlace(Map<String, dynamic> raw) {
+  final place = boardingPointPlace(raw, fallback: '');
+  return {
+    ...place,
+    'latitude': double.tryParse('${raw['lat']}'),
+    'longitude': double.tryParse('${raw['lon']}'),
+  };
+}
+
+Future<M> reverseGeocodeBoardingPoint(M d) async {
+  await need(adminRoles);
+  final lat = d['latitude'], lng = d['longitude'];
+  if (lat is! num ||
+      lng is! num ||
+      !lat.isFinite ||
+      !lng.isFinite ||
+      lat < -90 ||
+      lat > 90 ||
+      lng < -180 ||
+      lng > 180) {
+    fail('Choose a valid point on the map.');
+  }
+  final result = await _nominatim(
+    Uri.https('nominatim.openstreetmap.org', '/reverse', {
+      'format': 'jsonv2',
+      'addressdetails': '1',
+      'namedetails': '1',
+      'zoom': '18',
+      'lat': '${lat.toDouble()}',
+      'lon': '${lng.toDouble()}',
+    }),
+  );
+  if (result is! Map) {
+    return {'name': '', 'address': '', 'district': ''};
+  }
+  return boardingPointPlace(Map<String, dynamic>.from(result), fallback: '');
+}
 
 Future<M> saveBus(M d) async {
   final actor = await need(adminRoles);
@@ -167,34 +322,214 @@ Future<M> assignDriver(M d) async {
 
 Future<M> saveBoardingPoint(M d) async {
   final actor = await need(adminRoles);
-  final name = '${d['name'] ?? ''}'.trim(), lat = d['lat'], lng = d['lng'];
-  if (name.isEmpty ||
-      lat is! num ||
-      lng is! num ||
-      lat.abs() > 90 ||
-      lng.abs() > 180) {
-    fail('Name and valid coordinates are required.');
+  final name = '${d['name'] ?? ''}'.trim(),
+      latitude = d['latitude'],
+      longitude = d['longitude'],
+      address = '${d['address'] ?? ''}'.trim(),
+      district = '${d['district'] ?? ''}'.trim(),
+      pointId = '${d['boardingPointId'] ?? ''}'.trim();
+  if (name.isEmpty || name.length > 120) {
+    fail('Enter a boarding point name (up to 120 characters).');
   }
-  final c = await college(),
-      r = await osrm([
-        [lng.toDouble(), lat.toDouble()],
-        [(c['lng'] as num).toDouble(), (c['lat'] as num).toDouble()],
+  if (latitude is! num ||
+      longitude is! num ||
+      !latitude.isFinite ||
+      !longitude.isFinite ||
+      latitude < -90 ||
+      latitude > 90 ||
+      longitude < -180 ||
+      longitude > 180) {
+    fail('Choose a valid location on the map.');
+  }
+  if (address.length > 500 || district.length > 120) {
+    fail('The detected location details are too long. Please try again.');
+  }
+  final collection = fs.collection('boardingPoints');
+  final isEdit = pointId.isNotEmpty;
+  final ref = isEdit ? collection.doc(pointId) : collection.doc();
+  final snapshot = isEdit ? await ref.get() : null;
+  if (isEdit && !snapshot!.exists) {
+    fail('This boarding point no longer exists.');
+  }
+  final previous = snapshot?.data();
+  final oldLatitude = (previous?['latitude'] as num?)?.toDouble();
+  final oldLongitude = (previous?['longitude'] as num?)?.toDouble();
+  final moved =
+      oldLatitude != null &&
+      oldLongitude != null &&
+      boardingPointDistanceMeters(
+            oldLatitude,
+            oldLongitude,
+            latitude.toDouble(),
+            longitude.toDouble(),
+          ) >
+          0.5;
+  final oldStatus = '${previous?['status'] ?? 'active'}';
+  final status = '${d['status'] ?? oldStatus}';
+  if (status != 'active' && status != 'inactive') {
+    fail('Choose active or inactive status.');
+  }
+  final operations = (await fs.doc('config/operations').get()).data() ?? {};
+  final rawRadius = operations['boardingPointDuplicateDistanceMeters'];
+  final radius = rawRadius is num && rawRadius >= 25 && rawRadius <= 5000
+      ? rawRadius.toDouble()
+      : defaultBoardingPointDuplicateDistanceMeters.toDouble();
+  if (!isEdit && d['allowDuplicate'] != true) {
+    final existing = await collection.get();
+    final duplicates = <M>[];
+    for (final point in existing.docs) {
+      final p = point.data();
+      final lat = p['latitude'], lng = p['longitude'];
+      if (p['status'] == 'inactive' || lat is! num || lng is! num) continue;
+      final distance = boardingPointDistanceMeters(
+        latitude.toDouble(),
+        longitude.toDouble(),
+        lat.toDouble(),
+        lng.toDouble(),
+      );
+      if (distance <= radius) {
+        duplicates.add({
+          'boardingPointId': point.id,
+          'name': p['name'] ?? 'Unnamed boarding point',
+          'address': p['address'] ?? '',
+          'latitude': lat,
+          'longitude': lng,
+          'distanceMeters': distance.round(),
+        });
+      }
+    }
+    if (duplicates.isNotEmpty) {
+      return {'duplicates': duplicates, 'nearbyDistanceMeters': radius.round()};
+    }
+  }
+  final willAffectStudents =
+      isEdit &&
+      ((moved && oldStatus != 'inactive') ||
+          (status == 'inactive' && oldStatus != 'inactive'));
+  var affectedStudentCount = 0;
+  if (willAffectStudents) {
+    final assigned = await fs
+        .collection('students')
+        .where('approvedBoardingPointId', isEqualTo: pointId)
+        .get();
+    final permitted = await fs
+        .collection('students')
+        .where('availableBoardingPointIds', arrayContains: pointId)
+        .get();
+    affectedStudentCount = {
+      for (final student in [...assigned.docs, ...permitted.docs]) student.id,
+    }.length;
+    if (affectedStudentCount > 0 && d['confirmAffected'] != true) {
+      return {
+        'needsReviewConfirmation': true,
+        'affectedStudentCount': affectedStudentCount,
+      };
+    }
+  }
+
+  double? roadDistanceKm = (previous?['roadDistanceKm'] as num?)?.toDouble();
+  String? distanceWarning;
+  final collegeData = (await fs.doc('config/college').get()).data();
+  final hasCollegeLocation =
+      collegeData?['lat'] is num && collegeData?['lng'] is num;
+  if (hasCollegeLocation && (!isEdit || moved)) {
+    try {
+      final distance = await osrm([
+        [longitude.toDouble(), latitude.toDouble()],
+        [
+          (collegeData!['lng'] as num).toDouble(),
+          (collegeData['lat'] as num).toDouble(),
+        ],
       ]);
-  final ref = fs.collection('boardingPoints').doc();
-  await ref.set({
+      roadDistanceKm = (distance.km * 100).round() / 100;
+    } on Fail {
+      roadDistanceKm = null;
+      distanceWarning =
+          'The boarding point was saved, but road distance could not be calculated.';
+    }
+  } else if (!hasCollegeLocation && (!isEdit || moved)) {
+    roadDistanceKm = null;
+    distanceWarning =
+        'The boarding point was saved. Add the college location later to calculate road distance.';
+  }
+  final alreadyFlagged = previous?['reviewRequired'] == true;
+  final reviewRequired =
+      alreadyFlagged || (willAffectStudents && affectedStudentCount > 0);
+  final reviewReason = moved
+      ? 'location_moved'
+      : status == 'inactive' && oldStatus != 'inactive'
+      ? 'deactivated'
+      : previous?['reviewReason'];
+  final now = FieldValue.serverTimestamp();
+  final values = <String, dynamic>{
     'boardingPointId': ref.id,
     'name': name,
-    'latitude': lat,
-    'longitude': lng,
-    'roadDistanceKm': (r.km * 100).round() / 100,
+    'nameManuallyEdited': d['nameManuallyEdited'] == true,
+    'address': address,
+    'district': district,
+    'latitude': latitude.toDouble(),
+    'longitude': longitude.toDouble(),
+    'status': status,
     'approvalStatus': 'approved',
-    'verifiedBy': actor.uid,
-    'verifiedAt': FieldValue.serverTimestamp(),
-  });
-  await audit(actor, 'createBoardingPoint', 'boardingPoints/${ref.id}', null, {
-    'name': name,
-  });
-  return {'boardingPointId': ref.id, 'roadDistanceKm': r.km};
+    'roadDistanceKm': roadDistanceKm,
+    'updatedBy': actor.uid,
+    'updatedAt': now,
+    'reviewRequired': reviewRequired,
+    if (reviewRequired) ...{
+      'reviewReason': reviewReason,
+      'reviewAffectedStudentCount': affectedStudentCount > 0
+          ? affectedStudentCount
+          : previous?['reviewAffectedStudentCount'] ?? 0,
+      if (!alreadyFlagged || willAffectStudents) ...{
+        'reviewFlaggedBy': actor.uid,
+        'reviewFlaggedAt': now,
+      },
+    },
+  };
+  if (!isEdit) {
+    values.addAll({
+      'createdBy': actor.uid,
+      'createdAt': now,
+      'verifiedBy': actor.uid,
+      'verifiedAt': now,
+    });
+  }
+  await ref.set(values, SetOptions(merge: true));
+  await audit(
+    actor,
+    isEdit ? 'updateBoardingPoint' : 'createBoardingPoint',
+    'boardingPoints/${ref.id}',
+    previous,
+    values,
+  );
+  return {
+    'boardingPointId': ref.id,
+    'roadDistanceKm': roadDistanceKm,
+    'distanceWarning': distanceWarning,
+    'reviewRequired': reviewRequired,
+    'affectedStudentCount': affectedStudentCount,
+  };
+}
+
+Future<M> setBoardingPointDuplicateDistance(M d) async {
+  final actor = await need(adminRoles);
+  final meters = _int(d['meters']);
+  if (meters < 25 || meters > 5000) {
+    fail('Set the nearby duplicate check between 25 and 5,000 metres.');
+  }
+  await fs.doc('config/operations').set({
+    'boardingPointDuplicateDistanceMeters': meters,
+    'updatedBy': actor.uid,
+    'updatedAt': FieldValue.serverTimestamp(),
+  }, SetOptions(merge: true));
+  await audit(
+    actor,
+    'setBoardingPointDuplicateDistance',
+    'config/operations',
+    null,
+    {'boardingPointDuplicateDistanceMeters': meters},
+  );
+  return {'meters': meters};
 }
 
 Future<M> saveRoute(M d) async {
@@ -207,8 +542,10 @@ Future<M> saveRoute(M d) async {
   final stops = <M>[];
   for (final id in stopIds) {
     final p = (await fs.doc('boardingPoints/$id').get()).data();
-    if (p == null || p['approvalStatus'] != 'approved') {
-      fail('Every stop must be an approved boarding point.');
+    if (p == null ||
+        p['approvalStatus'] != 'approved' ||
+        p['status'] == 'inactive') {
+      fail('Every stop must be an active, approved boarding point.');
     }
     stops.add(p);
   }

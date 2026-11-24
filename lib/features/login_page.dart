@@ -1,6 +1,8 @@
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import '../core/api.dart';
+import '../core/auth_storage.dart';
 import '../core/theme.dart';
 import 'register_page.dart';
 
@@ -14,7 +16,55 @@ class _LoginPageState extends State<LoginPage> {
   final _email = TextEditingController();
   final _pass = TextEditingController();
   bool _busy = false;
+  bool _rememberMe = false;
+  bool _obscurePassword = true;
+  bool _invitationExpanded = false;
   String? _error;
+  final _invitationCode = TextEditingController();
+  final _authStorage = AuthStorage();
+
+  @override
+  void initState() {
+    super.initState();
+    _restoreRememberedCredentials();
+  }
+
+  Future<void> _restoreRememberedCredentials() async {
+    final rememberMe = await _authStorage.getRememberMe();
+    final email = await _authStorage.getRememberedEmail();
+    if (!mounted) return;
+    setState(() {
+      _rememberMe = rememberMe;
+      if (rememberMe) _email.text = email;
+    });
+    if (rememberMe) {
+      final password = await _authStorage.getRememberedPassword(email);
+      if (mounted && password != null) _pass.text = password;
+    }
+  }
+
+  Future<void> _saveSuccessfulSignIn() async {
+    final email = _email.text.trim();
+    if (_rememberMe) {
+      await _authStorage.rememberEmailPassword(
+        email: email,
+        password: _pass.text,
+      );
+    } else {
+      await _authStorage.clearRememberMe();
+    }
+  }
+
+  Future<void> _forgetThisDevice() async {
+    await _authStorage.forgetThisDevice();
+    if (!mounted) return;
+    setState(() {
+      _rememberMe = false;
+      _email.clear();
+      _pass.clear();
+      _error = null;
+    });
+  }
 
   Future<void> _signIn() async {
     if (_email.text.trim().isEmpty || _pass.text.isEmpty) {
@@ -30,6 +80,7 @@ class _LoginPageState extends State<LoginPage> {
         email: _email.text.trim(),
         password: _pass.text,
       );
+      await _saveSuccessfulSignIn();
     } on FirebaseAuthException catch (e) {
       setState(() => _error = _friendly(e));
     } finally {
@@ -48,6 +99,15 @@ class _LoginPageState extends State<LoginPage> {
         await FirebaseAuth.instance.signInWithPopup(provider);
       } else {
         await FirebaseAuth.instance.signInWithProvider(provider);
+      }
+      final user = FirebaseAuth.instance.currentUser;
+      if (user?.email != null) {
+        if (_rememberMe) {
+          await _authStorage.rememberEmail(user!.email!);
+          if (mounted) _email.text = user.email!;
+        } else {
+          await _authStorage.clearRememberMe();
+        }
       }
     } on FirebaseAuthException catch (e) {
       const quiet = [
@@ -139,10 +199,45 @@ class _LoginPageState extends State<LoginPage> {
                 const SizedBox(height: 12),
                 TextField(
                   controller: _pass,
-                  obscureText: true,
+                  obscureText: _obscurePassword,
                   onSubmitted: (_) => _signIn(),
                   autofillHints: const [AutofillHints.password],
-                  decoration: const InputDecoration(labelText: 'Password'),
+                  decoration: InputDecoration(
+                    labelText: 'Password',
+                    suffixIcon: IconButton(
+                      tooltip: _obscurePassword
+                          ? 'Show password'
+                          : 'Hide password',
+                      onPressed: () =>
+                          setState(() => _obscurePassword = !_obscurePassword),
+                      icon: Icon(
+                        _obscurePassword
+                            ? Icons.visibility_outlined
+                            : Icons.visibility_off_outlined,
+                      ),
+                    ),
+                  ),
+                ),
+                CheckboxListTile(
+                  contentPadding: EdgeInsets.zero,
+                  controlAffinity: ListTileControlAffinity.leading,
+                  value: _rememberMe,
+                  onChanged: (value) async {
+                    final selected = value == true;
+                    setState(() => _rememberMe = selected);
+                    if (!selected) {
+                      await _authStorage.clearRememberMe();
+                      if (mounted) _pass.clear();
+                    }
+                  },
+                  title: const Text('Remember me on this device'),
+                ),
+                Align(
+                  alignment: Alignment.centerLeft,
+                  child: TextButton(
+                    onPressed: _forgetThisDevice,
+                    child: const Text('Forget this device'),
+                  ),
                 ),
                 if (_error != null)
                   Padding(
@@ -181,12 +276,63 @@ class _LoginPageState extends State<LoginPage> {
                 ),
                 const Divider(height: 28),
                 OutlinedButton(
-                  onPressed: () => Navigator.push(
-                    context,
-                    MaterialPageRoute(builder: (_) => const RegisterPage()),
+                  onPressed: () => setState(
+                    () => _invitationExpanded = !_invitationExpanded,
                   ),
                   child: const Text('I have an invitation code'),
                 ),
+                if (_invitationExpanded) ...[
+                  const SizedBox(height: 12),
+                  TextField(
+                    controller: _invitationCode,
+                    decoration: const InputDecoration(
+                      labelText: 'Invitation code',
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  SizedBox(
+                    width: double.infinity,
+                    child: FilledButton(
+                      onPressed: _busy
+                          ? null
+                          : () async {
+                              final code = _invitationCode.text.trim();
+                              if (code.isEmpty) {
+                                setState(
+                                  () => _error = 'Enter the invitation code.',
+                                );
+                                return;
+                              }
+                              setState(() {
+                                _busy = true;
+                                _error = null;
+                              });
+                              try {
+                                await Api.call('previewInvite', {
+                                  'token': code,
+                                });
+                                if (!context.mounted) return;
+                                await Navigator.push(
+                                  context,
+                                  MaterialPageRoute(
+                                    builder: (_) =>
+                                        RegisterPage(initialCode: code),
+                                  ),
+                                );
+                              } catch (e) {
+                                if (mounted) {
+                                  setState(() => _error = '$e');
+                                }
+                              } finally {
+                                if (mounted) {
+                                  setState(() => _busy = false);
+                                }
+                              }
+                            },
+                      child: const Text('Continue with invitation'),
+                    ),
+                  ),
+                ],
                 const SizedBox(height: 8),
                 const Text(
                   'Google sign-in works for accounts the college has already set up.',

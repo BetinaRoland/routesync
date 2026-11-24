@@ -103,6 +103,13 @@ service cloud.firestore {
     }
     match /changeRequests/{id}  { allow read, write: if isAdmin(); }
     match /emergencyActions/{id} { allow read, write: if isAdmin(); }
+    match /routeProgress/{id} {
+      allow read: if isActive();
+      allow create, update: if isAdmin()
+        || (role() == 'driver'
+          && request.resource.data.busId is string
+          && driverOf(request.resource.data.busId));
+    }
 
     function studentReserves(id) {
       let n = request.resource.data;
@@ -172,13 +179,56 @@ service cloud.firestore {
       allow read: if id == 'college' ? signedIn() : isActive();
       allow write: if id == 'operations' ? isAdmin() : isSuper();
     }
+    function routeAdmin() { return role() == 'routeAdmin'; }
+    function validExpense(n, id) {
+      return n.expenseId == id
+        && n.busId is string
+        && exists(/databases/$(db)/documents/buses/$(n.busId))
+        && n.busNumber == get(/databases/$(db)/documents/buses/$(n.busId)).data.busNumber
+        && n.category in ['Fuel', 'Maintenance and Repairs', 'Tyres and Puncture', 'Driver Allowances and Trip Expenses', 'Tolls', 'Insurance', 'Permits and Certificates', 'Cleaning', 'Other Expenses']
+        && n.amount is number && n.amount > 0 && n.amount < 100000000
+        && n.expenseDate is timestamp
+        && n.description is string && n.description.size() > 0 && n.description.size() <= 2000
+        && (n.vendorName == null || (n.vendorName is string && n.vendorName.size() <= 200))
+        && (n.receiptUrl == null || (n.receiptUrl is string && n.receiptUrl.size() <= 2048));
+    }
     match /expenses/{id} {
       allow read: if isAdmin();
-      allow create, update: if isAdmin()
-        && request.resource.data.amount is number && request.resource.data.amount > 0 && request.resource.data.amount < 100000000
-        && request.resource.data.category in ['Fuel', 'Maintenance', 'Salary', 'Insurance', 'Tolls', 'Other']
-        && request.resource.data.keys().hasOnly(['amount', 'category', 'busId', 'note', 'date', 'createdBy', 'createdAt']);
-      allow delete: if isSuper();
+      allow create: if routeAdmin()
+        && validExpense(request.resource.data, id)
+        && request.resource.data.recordedBy == request.auth.uid
+        && request.resource.data.recordedByRole == 'routeAdmin'
+        && request.resource.data.updatedBy == request.auth.uid
+        && request.resource.data.createdAt == request.time
+        && request.resource.data.updatedAt == request.time
+        && request.resource.data.keys().hasAll(['expenseId', 'busId', 'busNumber', 'category', 'amount', 'description', 'expenseDate', 'vendorName', 'receiptUrl', 'recordedBy', 'recordedByRole', 'createdAt', 'updatedAt', 'updatedBy'])
+        && request.resource.data.keys().hasOnly(['expenseId', 'busId', 'busNumber', 'category', 'amount', 'description', 'expenseDate', 'vendorName', 'receiptUrl', 'recordedBy', 'recordedByRole', 'createdAt', 'updatedAt', 'updatedBy']);
+      allow update: if routeAdmin()
+        && validExpense(request.resource.data, id)
+        && request.resource.data.recordedBy == resource.data.recordedBy
+        && request.resource.data.recordedByRole == resource.data.recordedByRole
+        && request.resource.data.createdAt == resource.data.createdAt
+        && request.resource.data.updatedAt == request.time
+        && request.resource.data.updatedBy == request.auth.uid
+        && request.resource.data.keys().hasAll(['expenseId', 'busId', 'busNumber', 'category', 'amount', 'description', 'expenseDate', 'vendorName', 'receiptUrl', 'recordedBy', 'recordedByRole', 'createdAt', 'updatedAt', 'updatedBy'])
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['busId', 'busNumber', 'category', 'amount', 'description', 'expenseDate', 'vendorName', 'receiptUrl', 'updatedAt', 'updatedBy']);
+      allow delete: if false;
+    }
+    match /expenseHistory/{id} {
+      allow read: if isAdmin();
+      allow create: if routeAdmin()
+        && request.resource.data.recordedBy == request.auth.uid
+        && request.resource.data.recordedByRole == 'routeAdmin'
+        && request.resource.data.expenseId is string
+        && exists(/databases/$(db)/documents/expenses/$(request.resource.data.expenseId))
+        && request.resource.data.previousValues is map
+        && request.resource.data.previousValues == get(/databases/$(db)/documents/expenses/$(request.resource.data.expenseId)).data
+        && getAfter(/databases/$(db)/documents/expenses/$(request.resource.data.expenseId)).data.updatedBy == request.auth.uid
+        && getAfter(/databases/$(db)/documents/expenses/$(request.resource.data.expenseId)).data.updatedAt == request.time
+        && get(/databases/$(db)/documents/expenses/$(request.resource.data.expenseId)).data.diff(getAfter(/databases/$(db)/documents/expenses/$(request.resource.data.expenseId)).data).affectedKeys().hasAny(['busId', 'busNumber', 'category', 'amount', 'description', 'expenseDate', 'vendorName', 'receiptUrl'])
+        && request.resource.data.changedAt == request.time
+        && request.resource.data.keys().hasOnly(['expenseId', 'recordedBy', 'recordedByRole', 'changedAt', 'previousValues']);
+      allow update, delete: if false;
     }
     match /auditLogs/{id} {
       allow read: if isSuper();

@@ -6,6 +6,7 @@ import '../../core/theme.dart';
 import '../../core/widgets.dart';
 import '../notifications_page.dart';
 import '../tracker_service.dart';
+import '../live_map.dart';
 
 class DriverHome extends StatefulWidget {
   final Session session;
@@ -299,6 +300,16 @@ class _DriverHomeState extends State<DriverHome> {
                         ),
                       ],
                     ),
+                  ),
+                ),
+                const SizedBox(height: 8),
+                SizedBox(
+                  height: 280,
+                  child: LiveMap(
+                    busId: t['busId'] as String?,
+                    stops: asList(t['stops']),
+                    routeGeometry: asList(t['routeGeometry']),
+                    showEta: false,
                   ),
                 ),
                 const SizedBox(height: 8),

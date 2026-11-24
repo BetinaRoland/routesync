@@ -8,6 +8,7 @@ import '../../services/monitor.dart';
 import 'comms_pages.dart';
 import 'devices_page.dart';
 import 'fleet_pages.dart';
+import 'boarding_points_page.dart';
 import 'insights_page.dart';
 import 'monitor_pages.dart';
 import 'ops_pages.dart';
@@ -23,6 +24,62 @@ class _Item {
   const _Item(this.group, this.title, this.icon, this.page);
 }
 
+class _WorkspaceTab {
+  final String title;
+  final Widget page;
+  const _WorkspaceTab(this.title, this.page);
+}
+
+class _AdminWorkspace extends StatefulWidget {
+  final List<_WorkspaceTab> tabs;
+  const _AdminWorkspace({super.key, required this.tabs});
+
+  @override
+  State<_AdminWorkspace> createState() => _AdminWorkspaceState();
+}
+
+class _AdminWorkspaceState extends State<_AdminWorkspace>
+    with SingleTickerProviderStateMixin {
+  late final TabController _controller;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = TabController(length: widget.tabs.length, vsync: this);
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  void select(String tab) {
+    final index = widget.tabs.indexWhere((item) => item.title == tab);
+    if (index >= 0) _controller.animateTo(index);
+  }
+
+  @override
+  Widget build(BuildContext context) => Column(
+    children: [
+      Material(
+        color: Theme.of(context).colorScheme.surface,
+        child: TabBar(
+          controller: _controller,
+          isScrollable: true,
+          tabs: [for (final item in widget.tabs) Tab(text: item.title)],
+        ),
+      ),
+      Expanded(
+        child: TabBarView(
+          controller: _controller,
+          children: [for (final item in widget.tabs) item.page],
+        ),
+      ),
+    ],
+  );
+}
+
 class AdminShell extends StatefulWidget {
   final Session session;
   final String title;
@@ -34,10 +91,52 @@ class AdminShell extends StatefulWidget {
 class _AdminShellState extends State<AdminShell> {
   int _i = 0;
   late final List<_Item> _items;
+  final _peopleKey = GlobalKey<_AdminWorkspaceState>();
+  final _transportKey = GlobalKey<_AdminWorkspaceState>();
+  final _schedulesKey = GlobalKey<_AdminWorkspaceState>();
+  final _requestsKey = GlobalKey<_AdminWorkspaceState>();
+  final _reportsKey = GlobalKey<_AdminWorkspaceState>();
 
   void _go(String title) {
-    final i = _items.indexWhere((e) => e.title == title);
-    if (i >= 0) setState(() => _i = i);
+    final route = switch (title) {
+      'Students' || 'Import students' || 'Drivers' => ('People', title),
+      'Buses' ||
+      'Routes' ||
+      'Boarding points' ||
+      'GPS devices' => ('Transport Management', title),
+      'Schedules' || 'Tracking hours' => ('Schedules', title),
+      'Boarding requests' ||
+      'Alerts' ||
+      'Emergency' ||
+      'Feedback' ||
+      'Announcements' => ('Requests & Alerts', title),
+      'Bus health' ||
+      'Location history' ||
+      'On-time report' ||
+      'Suggestions' ||
+      'Reports' => ('Reports', title),
+      'Allocation' => ('Allocations', 'Allocation review'),
+      'Cost & Expenses' => ('Expenses', ''),
+      'Fee policy' ||
+      'Staff accounts' ||
+      'System settings' ||
+      'Audit log' => ('Settings', title),
+      _ => (title, ''),
+    };
+    final i = _items.indexWhere((e) => e.title == route.$1);
+    if (i < 0) return;
+    setState(() => _i = i);
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      final key = switch (route.$1) {
+        'People' => _peopleKey,
+        'Transport Management' => _transportKey,
+        'Schedules' => _schedulesKey,
+        'Requests & Alerts' => _requestsKey,
+        'Reports' => _reportsKey,
+        _ => null,
+      };
+      if (route.$2.isNotEmpty) key?.currentState?.select(route.$2);
+    });
   }
 
   @override
@@ -52,129 +151,126 @@ class _AdminShellState extends State<AdminShell> {
     MonitorService.start(); // alerts and bus status refresh while an admin has the app open
     final isSuper = widget.session.role == Role.superAdmin;
     _items = [
-      _Item('', 'Overview', Icons.dashboard_outlined, OverviewPage(onGo: _go)),
-      const _Item('Operations', 'Live map', Icons.map_outlined, LiveMap()),
-      const _Item(
-        'Operations',
-        'Bus health',
-        Icons.monitor_heart_outlined,
-        BusHealthPage(),
-      ),
-      const _Item(
-        'Operations',
-        'Alerts',
-        Icons.warning_amber_outlined,
-        AlertsPage(),
-      ),
-      const _Item(
-        'Operations',
-        'Allocation',
-        Icons.auto_fix_high_outlined,
-        AllocationPage(),
-      ),
-      const _Item(
-        'Operations',
-        'Emergency',
-        Icons.emergency_outlined,
-        EmergencyPage(),
-      ),
-      const _Item(
-        'Operations',
-        'Location history',
-        Icons.history,
-        HistoryPage(),
-      ),
-      const _Item(
-        'Operations',
-        'On-time report',
-        Icons.timer_outlined,
-        OnTimePage(),
-      ),
-      const _Item(
-        'Operations',
-        'Suggestions',
-        Icons.lightbulb_outline,
-        InsightsPage(),
-      ),
-      const _Item('People', 'Students', Icons.school_outlined, StudentsPage()),
-      const _Item('People', 'Import students', Icons.upload_file, ImportPage()),
-      const _Item(
+      _Item('', 'Dashboard', Icons.dashboard_outlined, OverviewPage(onGo: _go)),
+      _Item(
         'People',
-        'Boarding requests',
-        Icons.pin_drop_outlined,
-        RequestsPage(),
-      ),
-      const _Item(
         'People',
-        'Feedback',
-        Icons.forum_outlined,
-        FeedbackInboxPage(),
+        Icons.people_outline,
+        _AdminWorkspace(
+          key: _peopleKey,
+          tabs: const [
+            _WorkspaceTab('Students', StudentsPage()),
+            _WorkspaceTab('Import students', ImportPage()),
+            _WorkspaceTab('Drivers', DriversPage()),
+          ],
+        ),
       ),
-      const _Item(
-        'People',
-        'Announcements',
-        Icons.campaign_outlined,
-        AnnouncementsPage(),
-      ),
-      const _Item(
-        'Network',
-        'Buses',
+      _Item(
+        'Transport Management',
+        'Transport Management',
         Icons.directions_bus_outlined,
-        BusesPage(),
+        _AdminWorkspace(
+          key: _transportKey,
+          tabs: const [
+            _WorkspaceTab('Buses', BusesPage()),
+            _WorkspaceTab('Routes', RoutesPage()),
+            _WorkspaceTab('Boarding points', BoardingPointsPage()),
+            _WorkspaceTab('GPS devices', DevicesPage()),
+          ],
+        ),
       ),
-      const _Item('Network', 'Drivers', Icons.badge_outlined, DriversPage()),
-      const _Item(
-        'Network',
-        'GPS devices',
-        Icons.satellite_alt_outlined,
-        DevicesPage(),
-      ),
-      const _Item('Network', 'Routes', Icons.alt_route, RoutesPage()),
-      const _Item(
-        'Network',
-        'Boarding points',
-        Icons.location_on_outlined,
-        BoardingPointsPage(),
-      ),
-      const _Item(
-        'Network',
+      _Item(
+        'Schedules',
         'Schedules',
         Icons.calendar_month_outlined,
-        SchedulesPage(),
+        _AdminWorkspace(
+          key: _schedulesKey,
+          tabs: const [
+            _WorkspaceTab('Schedules', SchedulesPage()),
+            _WorkspaceTab('Tracking hours', HoursPage()),
+          ],
+        ),
       ),
-      const _Item('Network', 'Tracking hours', Icons.schedule, HoursPage()),
-      const _Item('Money', 'Reports', Icons.bar_chart, ReportsPage()),
-      const _Item('Money', 'Costs', Icons.receipt_long_outlined, CostsPage()),
+      _Item(
+        'Allocations',
+        'Allocations',
+        Icons.auto_fix_high_outlined,
+        _AdminWorkspace(
+          tabs: const [_WorkspaceTab('Allocation review', AllocationPage())],
+        ),
+      ),
+      const _Item(
+        'Live Tracking',
+        'Live Tracking',
+        Icons.map_outlined,
+        LiveMap(),
+      ),
+      _Item(
+        'Requests & Alerts',
+        'Requests & Alerts',
+        Icons.notifications_active_outlined,
+        _AdminWorkspace(
+          key: _requestsKey,
+          tabs: const [
+            _WorkspaceTab('Boarding requests', RequestsPage()),
+            _WorkspaceTab('Alerts', AlertsPage()),
+            _WorkspaceTab('Emergency', EmergencyPage()),
+            _WorkspaceTab('Feedback', FeedbackInboxPage()),
+            _WorkspaceTab('Announcements', AnnouncementsPage()),
+          ],
+        ),
+      ),
+      _Item(
+        'Expenses',
+        'Expenses',
+        Icons.receipt_long_outlined,
+        CostsPage(role: isSuper ? 'superAdmin' : 'routeAdmin'),
+      ),
+      _Item(
+        'Reports',
+        'Reports',
+        Icons.bar_chart,
+        _AdminWorkspace(
+          key: _reportsKey,
+          tabs: const [
+            _WorkspaceTab('Reports', ReportsPage()),
+            _WorkspaceTab('Bus health', BusHealthPage()),
+            _WorkspaceTab('Location history', HistoryPage()),
+            _WorkspaceTab('On-time report', OnTimePage()),
+            _WorkspaceTab('Suggestions', InsightsPage()),
+          ],
+        ),
+      ),
       if (isSuper)
         const _Item(
-          'Money',
-          'Fee policy',
-          Icons.request_quote_outlined,
-          FeePolicyPage(),
+          'Settings',
+          'Settings',
+          Icons.settings_outlined,
+          SettingsPage(),
         ),
       if (isSuper)
         const _Item(
-          'System',
+          'Settings',
           'Staff accounts',
           Icons.manage_accounts_outlined,
           StaffPage(),
         ),
       if (isSuper)
         const _Item(
-          'System',
-          'System settings',
-          Icons.settings_outlined,
-          SettingsPage(),
-        ),
-      if (isSuper)
-        const _Item(
-          'System',
+          'Settings',
           'Audit log',
           Icons.fact_check_outlined,
           AuditPage(),
         ),
+      if (isSuper)
+        const _Item(
+          'Settings',
+          'Fee policy',
+          Icons.request_quote_outlined,
+          FeePolicyPage(),
+        ),
       const _Item(
-        'System',
+        'Account',
         'Notifications',
         Icons.notifications_outlined,
         NotificationsPage(),

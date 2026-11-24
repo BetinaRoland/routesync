@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
@@ -6,11 +8,21 @@ import '../../core/api.dart';
 import '../../core/session.dart';
 import '../../core/theme.dart';
 import '../../core/widgets.dart';
-import '../../services/common.dart' show dateKey, need;
+import '../../services/common.dart' show hhmm, need;
 import '../eta_badge.dart';
 import '../live_map.dart';
 import '../notifications_page.dart';
 import 'feedback_page.dart';
+
+bool _withinTrackingHours(Map<String, dynamic> transport) {
+  final start = '${transport['trackingStart'] ?? ''}';
+  final end = '${transport['trackingEnd'] ?? ''}';
+  final now = hhmm();
+  return start.isNotEmpty &&
+      end.isNotEmpty &&
+      now.compareTo(start) >= 0 &&
+      now.compareTo(end) <= 0;
+}
 
 // Privacy: the student app never asks for device location. Boarding points are chosen by search or by tapping the map.
 class StudentHome extends StatefulWidget {
@@ -25,33 +37,58 @@ class _StudentHomeState extends State<StudentHome> {
   Object? _err;
   bool _loading = true;
   String? _altBus;
+  String? _transportRefreshError;
   List<Map<String, dynamic>> _alts = [];
   int _tab = 0;
+  Timer? _trackingClock;
 
   @override
   void initState() {
     super.initState();
+    _trackingClock = Timer.periodic(const Duration(minutes: 1), (_) {
+      if (mounted) setState(() {});
+      unawaited(_refreshAssignment());
+    });
     _load();
+  }
+
+  @override
+  void dispose() {
+    _trackingClock?.cancel();
+    super.dispose();
   }
 
   Future<void> _load() async {
     setState(() => _loading = true);
     try {
       _t = await Api.call('getMyTransport');
-      final uid = FirebaseAuth.instance.currentUser!.uid;
-      final a =
-          (await FirebaseFirestore.instance
-                  .doc('alternativeBoardings/${uid}_${dateKey()}')
-                  .get())
-              .data();
-      _altBus = a != null && a['status'] == 'reserved'
-          ? '${a['alternativeBusId']}'
-          : null;
+      final alternative = asMap(_t?['alternativeTransport']);
+      _altBus = alternative['busId'] as String?;
+      _transportRefreshError = null;
       _err = null;
     } catch (e) {
       _err = e;
     }
     if (mounted) setState(() => _loading = false);
+  }
+
+  Future<void> _refreshAssignment() async {
+    try {
+      final latest = await Api.call('getMyTransport');
+      final alternative = asMap(latest['alternativeTransport']);
+      if (!mounted) return;
+      setState(() {
+        _t = latest;
+        _altBus = alternative['busId'] as String?;
+        _transportRefreshError = null;
+      });
+    } catch (_) {
+      if (!mounted) return;
+      setState(
+        () => _transportRefreshError =
+            'Could not confirm your current bus assignment. Refresh to retry.',
+      );
+    }
   }
 
   // ---------- Bus tab ----------
@@ -61,6 +98,75 @@ class _StudentHomeState extends State<StudentHome> {
       'Live tracking ${t['trackingStart']} to ${t['trackingEnd']}',
   ].join('   ');
 
+  Map<String, dynamic> get _activeTransport =>
+      _altBus == null ? (_t ?? {}) : asMap(_t?['alternativeTransport']);
+
+  bool _trackingAllowed(Map<String, dynamic> transport) {
+    return _withinTrackingHours(transport);
+  }
+
+  String _trackingMessage(Map<String, dynamic> transport) {
+    final start = '${transport['trackingStart'] ?? ''}';
+    final end = '${transport['trackingEnd'] ?? ''}';
+    return start.isEmpty || end.isEmpty
+        ? 'Live tracking hours are not configured.'
+        : 'Live tracking is unavailable outside $start–$end.';
+  }
+
+  Widget _trackCard(Map<String, dynamic> transport) {
+    final busId = transport['busId'] as String?;
+    final available = busId != null;
+    final tracking =
+        available &&
+        _transportRefreshError == null &&
+        _trackingAllowed(transport);
+    final description = !available
+        ? 'Your bus map will be available after an allocation is published.'
+        : _transportRefreshError != null
+        ? _transportRefreshError!
+        : 'Bus ${transport['busNumber'] ?? busId}'
+              '${transport['routeName'] == null ? '' : ' · ${transport['routeName']}'}'
+              '${tracking ? ' · Tracking available now' : ' · ${_trackingMessage(transport)}'}';
+    return Card(
+      color: Theme.of(context).colorScheme.primaryContainer,
+      child: ListTile(
+        leading: const Icon(Icons.map_outlined, size: 30),
+        title: const Text(
+          'Track My Bus',
+          style: TextStyle(fontWeight: FontWeight.w700),
+        ),
+        subtitle: Text(description),
+        trailing: FilledButton(
+          onPressed: !available
+              ? null
+              : () => Navigator.push(
+                  context,
+                  MaterialPageRoute<void>(
+                    builder: (_) => StudentTrackingPage(
+                      transport: transport,
+                      assignedStop: asMap(_t?['boardingPoint']),
+                      assignmentConfirmed: _transportRefreshError == null,
+                    ),
+                  ),
+                ),
+          child: const Text('Open map'),
+        ),
+        onTap: !available
+            ? null
+            : () => Navigator.push(
+                context,
+                MaterialPageRoute<void>(
+                  builder: (_) => StudentTrackingPage(
+                    transport: transport,
+                    assignedStop: asMap(_t?['boardingPoint']),
+                    assignmentConfirmed: _transportRefreshError == null,
+                  ),
+                ),
+              ),
+      ),
+    );
+  }
+
   Widget _busTab() {
     if (_loading) return loading();
     if (_err != null) {
@@ -69,20 +175,45 @@ class _StudentHomeState extends State<StudentHome> {
       );
     }
     final t = _t!;
-    if (t['allocated'] != true) {
-      final msg = t['boardingPoint'] == null
+    final transport = _activeTransport;
+    final hasBus = transport['busId'] != null;
+    final driver = asMap(transport['driver']);
+    final stop = asMap(t['boardingPoint']);
+    if (!hasBus) {
+      final msg = stop.isEmpty
           ? 'Your college-assigned boarding point is not available yet.'
           : 'Your assigned stop is set. Your bus will appear here once the Route Admin publishes an allocation. Tap refresh to check.';
-      return EmptyState(msg, icon: Icons.directions_bus_outlined);
+      return Column(
+        children: [
+          _trackCard(transport),
+          Expanded(child: EmptyState(msg, icon: Icons.directions_bus_outlined)),
+        ],
+      );
     }
-    final driver = asMap(t['driver']);
+    final tracking =
+        _transportRefreshError == null && _trackingAllowed(transport);
     return Column(
       children: [
+        _trackCard(transport),
+        if (_transportRefreshError != null)
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16),
+            child: Text(
+              _transportRefreshError!,
+              style: TextStyle(color: Theme.of(context).colorScheme.error),
+            ),
+          ),
         ListTile(
-          leading: const Icon(Icons.directions_bus, color: navy, size: 32),
-          title: Text('Bus ${t['busNumber']}   ${t['routeName'] ?? ''}'),
+          leading: Icon(
+            _altBus == null ? Icons.directions_bus : Icons.alt_route,
+            color: navy,
+            size: 32,
+          ),
+          title: Text(
+            '${_altBus == null ? 'Bus' : 'Alternative bus'} ${transport['busNumber']}   ${transport['routeName'] ?? ''}',
+          ),
           subtitle: Text(
-            'Pickup: ${asMap(t['boardingPoint'])['name']}${driver.isNotEmpty ? '\nDriver: ${driver['name']}  ${driver['contact'] ?? ''}' : ''}',
+            'Pickup: ${stop['name'] ?? '-'}${driver.isNotEmpty ? '\nDriver: ${driver['name']}  ${driver['contact'] ?? ''}' : ''}',
           ),
           isThreeLine: driver.isNotEmpty,
         ),
@@ -92,21 +223,31 @@ class _StudentHomeState extends State<StudentHome> {
             child: Align(
               alignment: Alignment.centerLeft,
               child: Text(
-                _scheduleText(t),
+                _scheduleText(transport),
                 style: const TextStyle(fontSize: 12),
               ),
             ),
           ),
-        EtaBadge(busId: '${t['busId']}'),
+        EtaBadge(busId: '${transport['busId']}'),
         Expanded(
-          child: LiveMap(
-            busId: t['busId'] as String?,
-            stops: asList(t['stops']),
-            showEta: false,
-            myStop: asMap(t['boardingPoint']).isEmpty
-                ? null
-                : asMap(t['boardingPoint']),
-          ),
+          child: transport['busId'] == null
+              ? EmptyState(
+                  _refreshError ??
+                      'There is no active bus allocation to track.',
+                  icon: Icons.directions_bus_outlined,
+                )
+              : LiveMap(
+                  busId: transport['busId'] as String?,
+                  stops: asList(transport['stops']),
+                  routeGeometry: asList(transport['routeGeometry']),
+                  showEta: false,
+                  trackingEnabled: tracking,
+                  trackingUnavailableMessage: _trackingMessage(transport),
+                  staleAfterSeconds:
+                      (transport['gpsStaleSeconds'] as num?)?.toInt() ?? 120,
+                  busLabel: 'Bus ${transport['busNumber']}',
+                  myStop: stop.isEmpty ? null : stop,
+                ),
         ),
       ],
     );
@@ -238,7 +379,9 @@ class _StudentHomeState extends State<StudentHome> {
         children: [
           ListTile(
             leading: const Icon(Icons.check_circle, color: Colors.green),
-            title: Text('Alternative bus reserved: $_altBus'),
+            title: Text(
+              'Alternative bus active: ${_activeTransport['busNumber'] ?? _altBus}',
+            ),
             subtitle: const Text('Valid for today. Board at your usual stop.'),
           ),
           EtaBadge(busId: _altBus!),
@@ -246,6 +389,15 @@ class _StudentHomeState extends State<StudentHome> {
             child: LiveMap(
               busId: _altBus,
               showEta: false,
+              stops: asList(_activeTransport['stops']),
+              routeGeometry: asList(_activeTransport['routeGeometry']),
+              trackingEnabled: _trackingAllowed(_activeTransport),
+              trackingUnavailableMessage: _trackingMessage(_activeTransport),
+              staleAfterSeconds:
+                  (asMap(_activeTransport)['gpsStaleSeconds'] as num?)
+                      ?.toInt() ??
+                  120,
+              busLabel: 'Bus ${asMap(_activeTransport)['busNumber']}',
               myStop: asMap(_t?['boardingPoint']).isEmpty
                   ? null
                   : asMap(_t?['boardingPoint']),
@@ -379,7 +531,7 @@ class _StudentHomeState extends State<StudentHome> {
           _altTab(),
           NotificationsPage(
             audience: 'students',
-            busId: _t?['busId'] as String?,
+            busId: _activeTransport['busId'] as String?,
           ),
         ],
       ),
@@ -405,6 +557,155 @@ class _StudentHomeState extends State<StudentHome> {
             icon: Icon(Icons.notifications_outlined),
             selectedIcon: Icon(Icons.notifications),
             label: 'Alerts',
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class StudentTrackingPage extends StatefulWidget {
+  final Map<String, dynamic> transport;
+  final Map<String, dynamic> assignedStop;
+  final bool assignmentConfirmed;
+
+  const StudentTrackingPage({
+    super.key,
+    required this.transport,
+    required this.assignedStop,
+    required this.assignmentConfirmed,
+  });
+
+  @override
+  State<StudentTrackingPage> createState() => _StudentTrackingPageState();
+}
+
+class _StudentTrackingPageState extends State<StudentTrackingPage> {
+  Timer? _clock;
+  late Map<String, dynamic> _transport;
+  late Map<String, dynamic> _assignedStop;
+  String? _refreshError;
+
+  @override
+  void initState() {
+    super.initState();
+    _transport = widget.transport;
+    _assignedStop = widget.assignedStop;
+    _refreshError = widget.assignmentConfirmed
+        ? null
+        : 'Could not confirm your current bus assignment. Refresh to retry.';
+    _clock = Timer.periodic(const Duration(minutes: 1), (_) {
+      unawaited(_refreshTransport());
+    });
+    unawaited(_refreshTransport());
+  }
+
+  @override
+  void dispose() {
+    _clock?.cancel();
+    super.dispose();
+  }
+
+  Future<void> _refreshTransport() async {
+    try {
+      final latest = await Api.call('getMyTransport');
+      final alternative = asMap(latest['alternativeTransport']);
+      final transport = alternative.isNotEmpty ? alternative : latest;
+      if (!mounted) return;
+      setState(() {
+        _transport = transport;
+        _assignedStop = asMap(latest['boardingPoint']);
+        _refreshError = transport['busId'] == null
+            ? 'There is no active bus allocation to track.'
+            : null;
+      });
+    } catch (_) {
+      if (!mounted) return;
+      setState(
+        () => _refreshError =
+            'Could not confirm your current bus assignment. Refresh to retry.',
+      );
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final transport = _transport;
+    final assignedStop = _assignedStop;
+    final trackingEnabled =
+        _refreshError == null && _withinTrackingHours(transport);
+    final driver = asMap(transport['driver']);
+    final busNumber = '${transport['busNumber'] ?? ''}';
+    final trackingStart = '${transport['trackingStart'] ?? ''}';
+    final trackingEnd = '${transport['trackingEnd'] ?? ''}';
+    final staleSeconds =
+        ((transport['gpsStaleSeconds'] as num?)?.toInt() ?? 120).clamp(1, 3600);
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('Track My Bus'),
+        actions: [
+          IconButton(
+            tooltip: 'Refresh bus assignment',
+            onPressed: _refreshTransport,
+            icon: const Icon(Icons.refresh),
+          ),
+        ],
+        leading: IconButton(
+          icon: const Icon(Icons.arrow_back),
+          onPressed: () => Navigator.maybePop(context),
+          tooltip: 'Back to dashboard',
+        ),
+      ),
+      body: Column(
+        children: [
+          Card(
+            margin: const EdgeInsets.all(12),
+            child: Padding(
+              padding: const EdgeInsets.all(12),
+              child: Wrap(
+                spacing: 20,
+                runSpacing: 8,
+                children: [
+                  Text('Bus $busNumber'),
+                  if (driver.isNotEmpty) Text('Driver: ${driver['name']}'),
+                  if (assignedStop.isNotEmpty)
+                    Text('Your stop: ${assignedStop['name']}'),
+                  if (transport['routeName'] != null)
+                    Text('Route: ${transport['routeName']}'),
+                  if (_refreshError != null)
+                    Text(
+                      _refreshError!,
+                      style: TextStyle(
+                        color: Theme.of(context).colorScheme.error,
+                      ),
+                    ),
+                  Text(
+                    trackingEnabled
+                        ? 'Tracking hours: $trackingStart–$trackingEnd'
+                        : trackingStart.isEmpty || trackingEnd.isEmpty
+                        ? 'Live tracking hours are not configured.'
+                        : 'Tracking unavailable outside $trackingStart–$trackingEnd.',
+                  ),
+                ],
+              ),
+            ),
+          ),
+          Expanded(
+            child: LiveMap(
+              busId: transport['busId'] as String?,
+              busLabel: 'Bus $busNumber',
+              stops: asList(transport['stops']),
+              routeGeometry: asList(transport['routeGeometry']),
+              myStop: assignedStop.isEmpty ? null : assignedStop,
+              showEta: false,
+              trackingEnabled: trackingEnabled,
+              trackingUnavailableMessage: trackingEnabled
+                  ? null
+                  : trackingStart.isEmpty || trackingEnd.isEmpty
+                  ? 'Live tracking hours are not configured.'
+                  : 'Tracking unavailable outside $trackingStart–$trackingEnd.',
+              staleAfterSeconds: staleSeconds,
+            ),
           ),
         ],
       ),
