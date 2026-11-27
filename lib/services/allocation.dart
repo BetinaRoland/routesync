@@ -23,11 +23,12 @@ Future<void> releaseAllocation(String studentId, String reason) async {
   ]);
   if (a != null) {
     final uid = s['authUid'] as String?;
-    if (uid != null)
+    if (uid != null) {
       await Mirror.apply({
         ...Mirror.rider('${a['busId']}', uid, false),
         ...Mirror.riderStop(uid, null),
       });
+    }
     await recountBus('${a['busId']}');
   }
 }
@@ -136,8 +137,9 @@ Future<M> proposeAllocation(M d) async {
         ? 'Existing buses cannot take every student. Check the unallocated stops: extend a route or add a bus only if needed.'
         : 'All eligible students fit on existing buses; no extra bus is needed.',
   };
-  if (changes.length > 3000)
+  if (changes.length > 3000) {
     fail('Too many students for one proposal. Allocate in smaller groups.');
+  }
   final ref = fs.collection('changeRequests').doc();
   await ref.set({
     'requestId': ref.id,
@@ -182,13 +184,14 @@ Future<M> proposeRebalance(M d) async {
       )
       .toList();
   final plan = lg.planRebalance(eligible, f.riders);
-  if (plan.moves.isEmpty)
+  if (plan.moves.isEmpty) {
     return {
       'requestId': null,
       'message':
           'No bus can be freed right now. Every bus is needed for its riders, stops or seats.',
       'summary': {'assigned': 0, 'busesFreed': []},
     };
+  }
   final byId = {for (final b in f.all) b.id: b};
   final rider = {
     for (final list in f.riderDocs.values)
@@ -265,8 +268,9 @@ Future<M> reviewChangeRequest(M d) async {
   final actor = await need(adminRoles);
   final ref = fs.doc('changeRequests/${d['requestId']}'),
       cr = (await ref.get()).data();
-  if (cr == null || cr['status'] != 'pending')
+  if (cr == null || cr['status'] != 'pending') {
     fail('This proposal is no longer pending.');
+  }
   if (d['approve'] != true) {
     await ref.update({
       'status': 'rejected',
@@ -306,12 +310,13 @@ Future<M> reviewChangeRequest(M d) async {
     'applied': applied.length,
     'skipped': skipped.length,
   });
-  if (error != null)
+  if (error != null) {
     fail(
       applied.isEmpty
           ? error
           : 'Applied ${applied.length}, then stopped: $error',
     );
+  }
   return {
     'status': status,
     'applied': applied.length,
@@ -356,8 +361,9 @@ Future<void> _applyAllocation(
         if (!good) skipped.add('${c['studentId']}');
         return good;
       }).toList();
-      if (count + ok.length > (bus!['capacity'] as num))
+      if (count + ok.length > (bus!['capacity'] as num)) {
         fail('Bus ${bus['busNumber']} would exceed its capacity.');
+      }
       final ops = <void Function(WriteBatch)>[], m = <String, Object?>{};
       for (final c in ok) {
         final id = '${c['studentId']}_${cr['academicYear']}',
@@ -431,8 +437,9 @@ Future<void> _applyRebalance(
         if (!good) skipped.add('${c['studentId']}');
         return good;
       }).toList();
-      if (count + ok.length > (bus!['capacity'] as num))
+      if (count + ok.length > (bus!['capacity'] as num)) {
         fail('Bus ${bus['busNumber']} would exceed its capacity.');
+      }
       final ops = <void Function(WriteBatch)>[], m = <String, Object?>{};
       for (final c in ok) {
         ops.add(
@@ -496,20 +503,24 @@ Future<M> moveStudent(M d) async {
   final aRef = fs.doc('allocations/${s!['allocationId']}'),
       a = (await aRef.get()).data(),
       bus = (await fs.doc('buses/$toBusId').get()).data();
-  if (a == null || a['status'] != 'active')
+  if (a == null || a['status'] != 'active') {
     fail('The allocation is not active.');
+  }
   if (a['busId'] == toBusId) fail('The student is already on that bus.');
   if (bus == null ||
       bus['availability'] != true ||
       bus['maintenanceStatus'] != 'ok' ||
       bus['driverId'] == null ||
-      bus['routeId'] == null)
+      bus['routeId'] == null) {
     fail('That bus is not available for allocation.');
+  }
   final route = (await fs.doc('routes/${bus['routeId']}').get()).data();
-  if (!((route?['stopIds'] as List?) ?? []).contains(a['boardingPointId']))
+  if (!((route?['stopIds'] as List?) ?? []).contains(a['boardingPointId'])) {
     fail('That bus does not serve the student\'s stop.');
-  if (await activeCount(toBusId) >= (bus['capacity'] as num))
+  }
+  if (await activeCount(toBusId) >= (bus['capacity'] as num)) {
     fail('That bus is full.');
+  }
   await aRef.update({
     'busId': toBusId,
     'routeId': bus['routeId'],
@@ -517,11 +528,12 @@ Future<M> moveStudent(M d) async {
     'movedAt': FieldValue.serverTimestamp(),
   });
   final uid = s['authUid'] as String?;
-  if (uid != null)
+  if (uid != null) {
     await Mirror.apply({
       ...Mirror.rider('${a['busId']}', uid, false),
       ...Mirror.rider(toBusId, uid, true),
     });
+  }
   await recountBus('${a['busId']}');
   await recountBus(toBusId);
   await notify(
@@ -543,11 +555,13 @@ Future<M> moveStudent(M d) async {
 // ---------------- Alternative bus ----------------
 Future<({M own, List<M> list})> _altCandidates(Ctx c) async {
   final s = (await fs.doc('students/${c.studentId}').get()).data();
-  if (s == null || s['allocationId'] == null)
+  if (s == null || s['allocationId'] == null) {
     fail('You need an active bus allocation first.');
+  }
   final own = (await fs.doc('allocations/${s['allocationId']}').get()).data();
-  if (own == null || own['status'] != 'active')
+  if (own == null || own['status'] != 'active') {
     fail('You need an active bus allocation first.');
+  }
   final day = dateKey(), out = <M>[];
   final buses = await fs
       .collection('buses')
@@ -559,13 +573,15 @@ Future<({M own, List<M> list})> _altCandidates(Ctx c) async {
         x['maintenanceStatus'] != 'ok' ||
         x['routeId'] == null ||
         x['driverId'] == null ||
-        x['trackingStatus'] != 'active')
+        x['trackingStatus'] != 'active') {
       continue;
+    }
     final route = (await fs.doc('routes/${x['routeId']}').get()).data();
     if (!((route?['stopIds'] as List?) ?? []).contains(
       s['approvedBoardingPointId'],
-    ))
+    )) {
       continue;
+    }
     final alt = await fs
         .collection('alternativeBoardings')
         .where('alternativeBusId', isEqualTo: b.id)
@@ -577,7 +593,7 @@ Future<({M own, List<M> list})> _altCandidates(Ctx c) async {
         (x['capacity'] as num).toInt() -
         ((x['allocated'] as num?)?.toInt() ?? 0) -
         (alt.count ?? 0);
-    if (left > 0)
+    if (left > 0) {
       out.add({
         'busId': b.id,
         'busNumber': x['busNumber'],
@@ -587,6 +603,7 @@ Future<({M own, List<M> list})> _altCandidates(Ctx c) async {
         'capacity': x['capacity'],
         'stopId': s['approvedBoardingPointId'],
       });
+    }
   }
   return (own: own, list: out);
 }
@@ -616,8 +633,9 @@ Future<M> reserveAlternative(M d) async {
       day = dateKey(),
       ref = fs.doc('alternativeBoardings/${c.uid}_$day');
   final ex = (await ref.get()).data();
-  if (ex != null && ex['status'] == 'reserved')
+  if (ex != null && ex['status'] == 'reserved') {
     fail('You already reserved an alternative bus today.');
+  }
   await ref.set({
     'authUid': c.uid,
     'originalBusId': r.own['busId'],

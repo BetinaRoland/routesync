@@ -28,8 +28,9 @@ class Session {
       await Future.delayed(const Duration(milliseconds: 700));
     }
     if (x == null) return Session(user, Role.unknown, '', null, false);
-    if (x['status'] != 'active')
+    if (x['status'] != 'active') {
       return Session(user, Role.unknown, '${x['name'] ?? ''}', null, true);
+    }
     final role = switch (x['role']) {
       'superAdmin' => Role.superAdmin,
       'routeAdmin' => Role.routeAdmin,

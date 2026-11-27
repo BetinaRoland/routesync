@@ -8,6 +8,7 @@ import '../../core/api.dart';
 import '../../services/common.dart' show dateKey, resolveAlert;
 import '../../core/pdf_export.dart';
 import '../../core/theme.dart';
+import '../../core/components.dart';
 import '../../core/widgets.dart';
 import 'emergency_tabs.dart';
 
@@ -66,8 +67,10 @@ class _AlertsPageState extends State<AlertsPage> {
               leading: Icon(
                 _open ? Icons.warning_amber : Icons.check_circle_outline,
                 color: !_open
-                    ? Colors.green
-                    : (a['severity'] == 'high' ? Colors.red : Colors.orange),
+                    ? toneColor(context, Tone.success)
+                    : (a['severity'] == 'high'
+                          ? toneColor(context, Tone.danger)
+                          : toneColor(context, Tone.warning)),
               ),
               title: Text(
                 '${alertNames[a['alertType']] ?? a['alertType']}: bus ${a['busId']}',
@@ -152,8 +155,9 @@ class _AllocationPageState extends State<AllocationPage> {
           'Approve this allocation?',
           'The system re-checks capacity and availability, then publishes it to students and drivers.',
           action: 'Approve',
-        ))
+        )) {
       return;
+    }
     if (!mounted) return;
     setState(() => _busy = true);
     await runAction(context, () async {
@@ -240,7 +244,7 @@ class _AllocationPageState extends State<AllocationPage> {
                 if (cr['invalidReason'] != null)
                   Text(
                     'Invalidated: ${cr['invalidReason']}',
-                    style: const TextStyle(color: Colors.red),
+                    style: TextStyle(color: toneColor(context, Tone.danger)),
                   ),
                 if (un.isNotEmpty) ...[
                   const SizedBox(height: 8),
@@ -326,8 +330,9 @@ class _EmergencyPageState extends State<EmergencyPage> {
           'Students on the affected bus move to the replacement immediately. This is recorded in the audit log.',
           action: 'Replace bus',
         ) ||
-        !mounted)
+        !mounted) {
       return;
+    }
     setState(() => _busy = true);
     await runAction(context, () async {
       final r = await Api.call('emergencyReplaceBus', {
@@ -375,15 +380,16 @@ class _EmergencyPageState extends State<EmergencyPage> {
     length: 4,
     child: Column(
       children: [
-        const TabBar(
-          isScrollable: true,
-          labelColor: navy,
-          tabs: [
-            Tab(text: 'Replace a bus'),
-            Tab(text: 'Change route'),
-            Tab(text: 'Replace driver'),
-            Tab(text: 'Recent actions'),
-          ],
+        LayoutBuilder(
+          builder: (context, box) => TabBar(
+            isScrollable: box.maxWidth < 640,
+            tabs: const [
+              Tab(text: 'Replace a bus'),
+              Tab(text: 'Change route'),
+              Tab(text: 'Replace driver'),
+              Tab(text: 'Recent actions'),
+            ],
+          ),
         ),
         Expanded(
           child: TabBarView(
@@ -474,8 +480,10 @@ class _EmergencyPageState extends State<EmergencyPage> {
                     leading: Icon(
                       Icons.emergency,
                       color: e['reviewStatus'] == 'review_required'
-                          ? Colors.red
-                          : (open ? Colors.orange : Colors.grey),
+                          ? toneColor(context, Tone.danger)
+                          : (open
+                                ? toneColor(context, Tone.warning)
+                                : toneColor(context, Tone.neutral)),
                     ),
                     trailing: open
                         ? PopupMenuButton<String>(
@@ -692,8 +700,9 @@ class _ReportsPageState extends State<ReportsPage> {
   ) => FutureBuilder<List<QuerySnapshot<Map<String, dynamic>>>>(
     future: _f,
     builder: (context, s) {
-      if (s.hasError)
+      if (s.hasError) {
         return Center(child: Text('Could not build the report.\n${s.error}'));
+      }
       if (!s.hasData) return loading();
       final students = s.data![0].docs.map((d) => d.data()).toList();
       final buses = s.data![1].docs.map((d) => d.data()).toList();
@@ -828,7 +837,7 @@ class _ReportsPageState extends State<ReportsPage> {
                 padding: const EdgeInsets.only(top: 8),
                 child: Text(
                   'Under half full: ${low.map((b) => b['busNumber']).join(', ')}. Check whether their riders could share a route.',
-                  style: const TextStyle(color: Colors.orange),
+                  style: TextStyle(color: toneColor(context, Tone.warning)),
                 ),
               ),
             const SizedBox(height: 20),
@@ -886,8 +895,30 @@ class _ReportsPageState extends State<ReportsPage> {
 }
 
 // ---------------- College schedules ----------------
-class SchedulesPage extends StatelessWidget {
+class SchedulesPage extends StatefulWidget {
   const SchedulesPage({super.key});
+  @override
+  State<SchedulesPage> createState() => _SchedulesPageState();
+}
+
+class _SchedulesPageState extends State<SchedulesPage> {
+  static const _days = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+  static const _full = {
+    'Mon': 'Monday',
+    'Tue': 'Tuesday',
+    'Wed': 'Wednesday',
+    'Thu': 'Thursday',
+    'Fri': 'Friday',
+    'Sat': 'Saturday',
+  };
+  late String _day;
+
+  @override
+  void initState() {
+    super.initState();
+    final today = DateTime.now().weekday; // Monday is 1, Sunday is 7
+    _day = _days[today > 6 ? 0 : today - 1];
+  }
 
   List<String> _csv(String s) =>
       s.split(',').map((e) => e.trim()).where((e) => e.isNotEmpty).toList();
@@ -911,12 +942,14 @@ class SchedulesPage extends StatelessWidget {
                       d.substring(1, d.length < 3 ? d.length : 3).toLowerCase(),
           )
           .toList();
-      if (days.isEmpty || days.any((d) => !valid.contains(d)))
+      if (days.isEmpty || days.any((d) => !valid.contains(d))) {
         throw 'Use day names like Mon, Tue, Wed.';
+      }
       final date = RegExp(r'^\d{4}-\d{2}-\d{2}$');
       final hol = _csv(r['holidays']!), spec = _csv(r['special']!);
-      if ([...hol, ...spec].any((x) => !date.hasMatch(x)))
+      if ([...hol, ...spec].any((x) => !date.hasMatch(x))) {
         throw 'Enter dates as YYYY-MM-DD.';
+      }
       await _fs.collection('collegeSchedules').add({
         'academicYear': r['year'],
         'departmentId': r['dept'],
@@ -929,39 +962,212 @@ class SchedulesPage extends StatelessWidget {
     });
   }
 
+  String _group(Map<String, dynamic> s) {
+    String v(Object? x) => (x as String?)?.isEmpty ?? true ? 'all' : '$x';
+    return 'Year ${v(s['academicYear'])}, dept ${v(s['departmentId'])}';
+  }
+
+  bool _runs(Map<String, dynamic> s) =>
+      ((s['workingDays'] as List?) ?? const []).contains(_day);
+
+  /// Horizontal day tabs. Each shows how many schedules run that day.
+  Widget _dayTabs(List<Doc> docs) => SingleChildScrollView(
+    scrollDirection: Axis.horizontal,
+    padding: const EdgeInsets.fromLTRB(16, 12, 16, 4),
+    child: Row(
+      children: [
+        for (final d in _days)
+          Padding(
+            padding: const EdgeInsets.only(right: 8),
+            child: ChoiceChip(
+              showCheckmark: false,
+              labelPadding: const EdgeInsets.symmetric(
+                horizontal: 10,
+                vertical: 6,
+              ),
+              label: Text(
+                '${_full[d]}'
+                '${docs.isEmpty ? '' : '  ${docs.where((x) => ((x.data()['workingDays'] as List?) ?? const []).contains(d)).length}'}',
+              ),
+              selected: _day == d,
+              onSelected: (_) => setState(() => _day = d),
+            ),
+          ),
+      ],
+    ),
+  );
+
+  Widget _scheduleCard(BuildContext c, Doc d) {
+    final s = d.data();
+    final runs = _runs(s);
+    final scheme = Theme.of(c).colorScheme;
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 10),
+      child: RsCard(
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            CircleAvatar(
+              backgroundColor: scheme.primaryContainer,
+              foregroundColor: scheme.onPrimaryContainer,
+              child: const Icon(Icons.calendar_month),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    _group(s),
+                    style: const TextStyle(
+                      fontWeight: FontWeight.w700,
+                      fontSize: 15,
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    'Working days: ${((s['workingDays'] as List?) ?? const []).join(', ')}',
+                    style: TextStyle(color: scheme.onSurfaceVariant),
+                  ),
+                  Text(
+                    'Holidays: ${((s['holidayDates'] as List?) ?? const []).length}   Special days: ${((s['specialWorkingDates'] as List?) ?? const []).length}',
+                    style: TextStyle(color: scheme.onSurfaceVariant),
+                  ),
+                  const SizedBox(height: 8),
+                  runs
+                      ? statusPill(
+                          c,
+                          Tone.success,
+                          'Working day',
+                          icon: Icons.directions_bus_outlined,
+                        )
+                      : statusPill(
+                          c,
+                          Tone.neutral,
+                          'Not a working day',
+                          icon: Icons.event_busy_outlined,
+                        ),
+                ],
+              ),
+            ),
+            IconButton(
+              tooltip: 'Delete schedule',
+              icon: const Icon(Icons.delete_outline),
+              onPressed: () async {
+                if (await confirm(
+                  c,
+                  'Delete this schedule?',
+                  'Students it covered fall back to any other matching schedule.',
+                  action: 'Delete',
+                )) {
+                  await d.reference.delete();
+                }
+              },
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  /// Holidays and special working dates that fall on the selected weekday.
+  Widget _dateCard(BuildContext c, List<Doc> docs) {
+    final wd = _days.indexOf(_day) + 1;
+    final rows = <(String, bool, String)>[];
+    for (final d in docs) {
+      final s = d.data();
+      final g = _group(s);
+      for (final x in (s['holidayDates'] as List?) ?? const []) {
+        if (DateTime.tryParse('$x')?.weekday == wd) rows.add(('$x', true, g));
+      }
+      for (final x in (s['specialWorkingDates'] as List?) ?? const []) {
+        if (DateTime.tryParse('$x')?.weekday == wd) rows.add(('$x', false, g));
+      }
+    }
+    rows.sort((a, b) => a.$1.compareTo(b.$1));
+    return SectionCard(
+      title: 'Holidays and special days on a ${_full[_day]}',
+      icon: Icons.event_note_outlined,
+      bodyPadding: const EdgeInsets.fromLTRB(16, 4, 16, 14),
+      child: rows.isEmpty
+          ? Text(
+              'None recorded.',
+              style: TextStyle(color: Theme.of(c).colorScheme.onSurfaceVariant),
+            )
+          : Column(
+              children: [
+                for (final r in rows)
+                  Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 4),
+                    child: Row(
+                      children: [
+                        Expanded(child: Text('${r.$1}  -  ${r.$3}')),
+                        statusPill(
+                          c,
+                          r.$2 ? Tone.warning : Tone.info,
+                          r.$2 ? 'Holiday' : 'Special working day',
+                        ),
+                      ],
+                    ),
+                  ),
+              ],
+            ),
+    );
+  }
+
+  Widget _dayBody(BuildContext c, List<Doc> docs) {
+    if (docs.isEmpty) {
+      return const EmptyState(
+        'No schedules yet. With none set, every day counts as a working day.',
+        icon: Icons.calendar_month_outlined,
+      );
+    }
+    final running = docs.where((d) => _runs(d.data())).length;
+    return ListView(
+      padding: const EdgeInsets.fromLTRB(16, 12, 16, 96),
+      children: [
+        PageHeader(
+          title: '${_full[_day]}',
+          subtitle:
+              '$running of ${docs.length} schedules run on this day'
+              '${running == docs.length ? '' : ', ${docs.length - running} do not'}.',
+          showBus: false,
+        ),
+        const SizedBox(height: 16),
+        for (final d in docs) _scheduleCard(c, d),
+        const SizedBox(height: 6),
+        _dateCard(c, docs),
+      ],
+    );
+  }
+
   @override
   Widget build(BuildContext context) => Scaffold(
-    floatingActionButton: FloatingActionButton(
+    floatingActionButton: FloatingActionButton.extended(
       onPressed: () => _add(context),
-      child: const Icon(Icons.add),
+      icon: const Icon(Icons.add),
+      label: const Text('Add schedule'),
     ),
-    body: DocList(
-      query: _fs.collection('collegeSchedules'),
-      empty:
-          'No schedules yet. With none set, every day counts as a working day.',
-      itemBuilder: (c, d) {
-        final s = d.data();
-        return ListTile(
-          leading: const Icon(Icons.calendar_month),
-          title: Text(
-            'Year ${(s['academicYear'] as String?)?.isEmpty ?? true ? 'all' : s['academicYear']}, dept ${(s['departmentId'] as String?)?.isEmpty ?? true ? 'all' : s['departmentId']}',
-          ),
-          subtitle: Text(
-            '${(s['workingDays'] as List).join(', ')}\nHolidays: ${(s['holidayDates'] as List).length}   Special days: ${(s['specialWorkingDates'] as List).length}',
-          ),
-          isThreeLine: true,
-          trailing: IconButton(
-            icon: const Icon(Icons.delete_outline),
-            onPressed: () async {
-              if (await confirm(
-                c,
-                'Delete this schedule?',
-                'Students it covered fall back to any other matching schedule.',
-                action: 'Delete',
-              ))
-                await d.reference.delete();
-            },
-          ),
+    body: StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+      stream: _fs.collection('collegeSchedules').snapshots(),
+      builder: (context, s) {
+        if (s.hasError) return const ErrorState('Could not load schedules.');
+        if (!s.hasData) return loading();
+        final docs = s.data!.docs;
+        final reduce = MediaQuery.of(context).disableAnimations;
+        return Column(
+          children: [
+            _dayTabs(docs),
+            Expanded(
+              child: AnimatedSwitcher(
+                duration: reduce ? Duration.zero : const Duration(milliseconds: 200),
+                child: KeyedSubtree(
+                  key: ValueKey(_day),
+                  child: _dayBody(context, docs),
+                ),
+              ),
+            ),
+          ],
         );
       },
     ),

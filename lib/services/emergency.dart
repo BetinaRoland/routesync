@@ -15,13 +15,15 @@ Future<M> emergencyReplaceBus(M d) async {
       reason = '${d['reason'] ?? ''}'.trim();
   final hours = (d['hours'] as num?)?.toInt() ?? 8;
   _needReason(reason);
-  if (busId.isEmpty || replId.isEmpty || busId == replId)
+  if (busId.isEmpty || replId.isEmpty || busId == replId) {
     fail('Choose two different buses.');
+  }
   final bus = (await fs.doc('buses/$busId').get()).data(),
       repl = (await fs.doc('buses/$replId').get()).data();
   if (bus == null || repl == null) fail('Bus not found.');
-  if (repl['availability'] != true || repl['maintenanceStatus'] != 'ok')
+  if (repl['availability'] != true || repl['maintenanceStatus'] != 'ok') {
     fail('The replacement bus is not available.');
+  }
   final al = await fs
       .collection('allocations')
       .where('busId', isEqualTo: busId)
@@ -29,10 +31,11 @@ Future<M> emergencyReplaceBus(M d) async {
       .get();
   final replCount = await activeCount(replId),
       cap = (repl['capacity'] as num).toInt();
-  if (replCount + al.docs.length > cap)
+  if (replCount + al.docs.length > cap) {
     fail(
       'Replacement bus has ${cap - replCount} free seats but ${al.docs.length} are needed.',
     );
+  }
   final route = (await fs.doc('routes/${bus['routeId']}').get()).data();
   // A spare bus takes over the broken bus route. A bus that already has riders keeps its own route and must serve every stop.
   final keepsOwnRoute = replCount > 0;
@@ -40,24 +43,28 @@ Future<M> emergencyReplaceBus(M d) async {
     final replStops = _stopsOf(
       (await fs.doc('routes/${repl['routeId']}').get()).data(),
     );
-    if (al.docs.any((a) => !replStops.contains(a.data()['boardingPointId'])))
+    if (al.docs.any((a) => !replStops.contains(a.data()['boardingPointId']))) {
       fail(
         'That bus already has riders and does not serve all these stops. Choose a spare bus.',
       );
+    }
   }
   final given = '${d['replacementDriverId'] ?? ''}',
       driverId = given.isNotEmpty ? given : repl['driverId'] as String?;
-  if (driverId == null)
+  if (driverId == null) {
     fail('The replacement bus has no driver. Choose a replacement driver.');
+  }
   final dr = (await fs.doc('drivers/$driverId').get()).data();
   if (dr == null || dr['status'] != 'active') fail('Driver is not active.');
   final region = bus['permittedRegionId'];
   if (region != null &&
-      !((dr['permittedRegionIds'] as List?) ?? []).contains(region))
+      !((dr['permittedRegionIds'] as List?) ?? []).contains(region)) {
     fail('Driver is not authorised for this region.');
+  }
   final drBus = dr['assignedBusId'];
-  if (drBus != null && drBus != replId && drBus != busId)
+  if (drBus != null && drBus != replId && drBus != busId) {
     fail('Driver is already on bus $drBus.');
+  }
 
   final em = fs.collection('emergencyActions').doc();
   final previous = {
@@ -116,8 +123,9 @@ Future<M> emergencyReplaceBus(M d) async {
       (b) => b.update(fs.doc('drivers/$driverId'), {'assignedBusId': replId}),
     );
     ops.add((b) => b.update(fs.doc('users/$driverId'), {'busId': replId}));
-    if (drBus != null && drBus != replId)
+    if (drBus != null && drBus != replId) {
       m.addAll(Mirror.writer('$drBus', driverId, false));
+    }
     m.addAll(Mirror.writer(replId, driverId, true));
   }
   if (!keepsOwnRoute) m.addAll(Mirror.busStops(replId, _stopsOf(route)));
@@ -190,15 +198,17 @@ Future<M> emergencyRouteChange(M d) async {
       .map((a) => a.data()['boardingPointId'])
       .toSet()
       .where((id) => !stopIds.contains(id));
-  if (missing.isNotEmpty)
+  if (missing.isNotEmpty) {
     fail(
       'Some riders board at stops you left out. Keep every stop that has riders, or move those riders first.',
     );
+  }
   final stops = <M>[];
   for (final id in stopIds) {
     final p = (await fs.doc('boardingPoints/$id').get()).data();
-    if (p == null || p['approvalStatus'] != 'approved')
+    if (p == null || p['approvalStatus'] != 'approved') {
       fail('Every stop must be an approved boarding point.');
+    }
     stops.add(p);
   }
   final c = await college();
@@ -289,14 +299,17 @@ Future<M> emergencyReplaceDriver(M d) async {
   final bus = (await fs.doc('buses/$busId').get()).data();
   if (bus == null) fail('Bus not found.');
   final dr = (await fs.doc('drivers/$driverId').get()).data();
-  if (dr == null || dr['status'] != 'active')
+  if (dr == null || dr['status'] != 'active') {
     fail('That driver is not active.');
+  }
   final region = bus['permittedRegionId'];
   if (region != null &&
-      !((dr['permittedRegionIds'] as List?) ?? []).contains(region))
+      !((dr['permittedRegionIds'] as List?) ?? []).contains(region)) {
     fail('That driver is not authorised for this region.');
-  if (dr['assignedBusId'] != null && dr['assignedBusId'] != busId)
+  }
+  if (dr['assignedBusId'] != null && dr['assignedBusId'] != busId) {
     fail('That driver is already on bus ${dr['assignedBusId']}.');
+  }
   if (bus['driverId'] == driverId) fail('That driver is already on this bus.');
   final em = fs.collection('emergencyActions').doc(),
       prev = bus['driverId'] as String?;
@@ -363,11 +376,13 @@ Future<M> reviewEmergency(M d) async {
   final actor = await need(adminRoles);
   final ref = fs.doc('emergencyActions/${d['emergencyId']}'),
       em = (await ref.get()).data();
-  if (em == null || !['active', 'review_required'].contains(em['reviewStatus']))
+  if (em == null || !['active', 'review_required'].contains(em['reviewStatus'])) {
     fail('Nothing to review.');
+  }
   if (d['action'] == 'keep') {
-    if (em['tmpRouteId'] != null)
+    if (em['tmpRouteId'] != null) {
       await fs.doc('routes/${em['tmpRouteId']}').update({'status': 'active'});
+    }
     await ref.update({'reviewStatus': 'confirmed', 'reviewedBy': actor.uid});
     await audit(actor, 'confirmEmergency', 'emergencyActions/${ref.id}');
     return {'ok': true};
@@ -449,12 +464,14 @@ Future<void> _revertDriver(M em) async {
     if (prev != null) (b) => b.update(fs.doc('users/$prev'), {'busId': busId}),
   ];
   if (prev != null) m.addAll(Mirror.writer(busId, prev, true));
-  if (pv['newDriverPrevBus'] != null)
+  if (pv['newDriverPrevBus'] != null) {
     m.addAll(Mirror.writer('${pv['newDriverPrevBus']}', driverId, true));
+  }
   await writeAll(ops);
   await Mirror.apply(m);
-  if (prev != null)
+  if (prev != null) {
     await notify(prev, 'Assignment restored', 'You are back on your bus.');
+  }
 }
 
 Future<void> _revertReplacement(M em, bool restoreBus) async {
@@ -508,8 +525,9 @@ Future<void> _revertReplacement(M em, bool restoreBus) async {
           b.update(fs.doc('users/$driverId'), {'busId': pv['driverPrevBus']}),
     );
     m.addAll(Mirror.writer(replId, driverId, false));
-    if (pv['driverPrevBus'] != null)
+    if (pv['driverPrevBus'] != null) {
       m.addAll(Mirror.writer('${pv['driverPrevBus']}', driverId, true));
+    }
     if (oldRepl != null) {
       ops.add(
         (b) => b.update(fs.doc('drivers/$oldRepl'), {'assignedBusId': replId}),

@@ -20,3 +20,21 @@ key.properties
 
 tools/node_modules/
 node_modules/
+
+# Generated Flutter files
+windows/flutter/ephemeral/
+.dart_tool/
+build/
+
+# Firebase local cache
+.firebase/
+
+# Credentials and secrets
+.env
+.env.*
+!.env.example
+*service-account*.json
+*firebase-adminsdk*.json
+*.jks
+*.keystore
+key.properties

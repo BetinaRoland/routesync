@@ -39,6 +39,7 @@ flutter:
   assets:
     - assets/logo.png
     - assets/logo_small.png
+    - assets/brand/routesync_bus_outline.png
 flutter_launcher_icons:
   android: true
   ios: true

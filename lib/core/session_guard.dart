@@ -40,8 +40,9 @@ class _SessionGuardState extends State<SessionGuard> {
       final user = FirebaseAuth.instance.currentUser;
       if (user == null) return;
       final at = (await user.getIdTokenResult()).authTime;
-      if (at != null && DateTime.now().difference(at).inHours >= _maxHours)
+      if (at != null && DateTime.now().difference(at).inHours >= _maxHours) {
         await FirebaseAuth.instance.signOut();
+      }
     } catch (_) {}
   }
 

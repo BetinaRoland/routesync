@@ -13,10 +13,12 @@ class BusHealthPage extends StatelessWidget {
 
   // Spec statuses: Active, Offline, Delayed, Under Maintenance, Tracking Problem.
   (String, Color) _status(Map<String, dynamic> b, Map? loc) {
-    if (b['maintenanceStatus'] != 'ok')
+    if (b['maintenanceStatus'] != 'ok') {
       return ('Under maintenance', Colors.blueGrey);
-    if (b['trackingStatus'] == 'tracking_problem')
+    }
+    if (b['trackingStatus'] == 'tracking_problem') {
       return ('Tracking problem', Colors.red);
+    }
     final age = loc == null
         ? null
         : DateTime.now()
@@ -25,8 +27,9 @@ class BusHealthPage extends StatelessWidget {
               )
               .inSeconds;
     if (age == null || age > 120) return ('Offline', Colors.orange);
-    if (b['scheduleStatus'] == 'delayed')
+    if (b['scheduleStatus'] == 'delayed') {
       return ('Delayed', Colors.amber.shade800);
+    }
     return ('Active', Colors.green);
   }
 
@@ -38,11 +41,13 @@ class BusHealthPage extends StatelessWidget {
     builder: (context, bs) => StreamBuilder<DatabaseEvent>(
       stream: FirebaseDatabase.instance.ref('liveLocations').onValue,
       builder: (context, ls) {
-        if (bs.hasError)
+        if (bs.hasError) {
           return Center(child: Text('Could not load buses.\n${bs.error}'));
+        }
         if (!bs.hasData) return loading();
-        if (bs.data!.docs.isEmpty)
+        if (bs.data!.docs.isEmpty) {
           return const Center(child: Text('No buses yet.'));
+        }
         final raw = ls.data?.snapshot.value;
         final live = raw is Map ? raw : <dynamic, dynamic>{};
         return ListView(
@@ -62,7 +67,7 @@ class BusHealthPage extends StatelessWidget {
                     child: ListTile(
                       leading: Icon(
                         Icons.directions_bus,
-                        color: color,
+                        color: toneFor(context, color),
                         size: 32,
                       ),
                       title: Text('Bus ${b['busNumber']}'),
@@ -137,7 +142,7 @@ class StaffPage extends StatelessWidget {
             s['role'] == 'superAdmin'
                 ? Icons.admin_panel_settings
                 : Icons.manage_accounts,
-            color: active ? navy : Colors.grey,
+            color: active ? navy : toneColor(context, Tone.neutral),
           ),
           title: Text('${s['name']}'),
           subtitle: Text('${s['email']}'),

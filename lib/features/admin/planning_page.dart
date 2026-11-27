@@ -1,6 +1,7 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:material_ui/material_ui.dart';
 import '../../core/api.dart';
+import '../../core/theme.dart';
 import '../../core/widgets.dart';
 
 class DailyTransportPlanningPage extends StatefulWidget {
@@ -133,8 +134,8 @@ class _DailyTransportPlanningPageState
                           ? Icons.check_circle
                           : Icons.pause_circle,
                       color: doc.data()['active'] == true
-                          ? Colors.green
-                          : Colors.grey,
+                          ? toneColor(context, Tone.success)
+                          : toneColor(context, Tone.neutral),
                     ),
                     title: Text('${doc.data()['name']}'),
                     subtitle: Text(

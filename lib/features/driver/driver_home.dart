@@ -2,6 +2,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:material_ui/material_ui.dart';
 import '../../core/api.dart';
 import '../../core/session.dart';
+import '../../core/components.dart';
 import '../../core/theme.dart';
 import '../../core/widgets.dart';
 import '../notifications_page.dart';
@@ -115,6 +116,7 @@ class _DriverHomeState extends State<DriverHome> {
       appBar: AppBar(
         title: const Text('RouteSync driver'),
         actions: [
+          const ThemeToggleButton(),
           IconButton(
             tooltip: 'Notifications',
             icon: const Icon(Icons.notifications),
@@ -188,6 +190,98 @@ class _DriverHomeState extends State<DriverHome> {
               padding: const EdgeInsets.all(16),
               children: [
                 Card(
+                  child: Padding(
+                    padding: const EdgeInsets.all(16),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        ValueListenableBuilder<DateTime?>(
+                          valueListenable: _tracker!.lastFix,
+                          builder: (_, fix, _) => Row(
+                            children: [
+                              Icon(
+                                Icons.circle,
+                                size: 12,
+                                color: _tracker!.running
+                                    ? (fix == null
+                                          ? toneColor(context, Tone.warning)
+                                          : toneColor(context, Tone.success))
+                                    : toneColor(context, Tone.neutral),
+                              ),
+                              const SizedBox(width: 8),
+                              Expanded(
+                                child: Text(
+                                  !_tracker!.running
+                                      ? 'Location sharing is off'
+                                      : fix == null
+                                      ? 'Waiting for a GPS fix'
+                                      : 'Sharing location, last sent ${fix.toLocal().toString().substring(11, 19)}',
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                        ValueListenableBuilder<String?>(
+                          valueListenable: _tracker!.error,
+                          builder: (_, e, _) => e == null
+                              ? const SizedBox.shrink()
+                              : Padding(
+                                  padding: const EdgeInsets.only(top: 8),
+                                  child: Text(
+                                    e,
+                                    style: TextStyle(
+                                      color: Theme.of(
+                                        context,
+                                      ).colorScheme.error,
+                                    ),
+                                  ),
+                                ),
+                        ),
+                        if (_msg != null)
+                          Padding(
+                            padding: const EdgeInsets.only(top: 8),
+                            child: Text(
+                              _msg!,
+                              style: TextStyle(
+                                color: Theme.of(context).colorScheme.error,
+                              ),
+                            ),
+                          ),
+                        const SizedBox(height: 12),
+                        SizedBox(
+                          width: double.infinity,
+                          child: FilledButton(
+                            style: FilledButton.styleFrom(
+                              minimumSize: const Size.fromHeight(56),
+                            ),
+                            onPressed: _toggle,
+                            child: Text(
+                              _tracker!.running
+                                  ? 'Stop sharing location'
+                                  : 'Start sharing location',
+                            ),
+                          ),
+                        ),
+                        const SizedBox(height: 8),
+                        SizedBox(
+                          width: double.infinity,
+                          child: OutlinedButton.icon(
+                            onPressed: _report,
+                            icon: const Icon(Icons.report_problem_outlined),
+                            label: const Text('Report a problem'),
+                          ),
+                        ),
+                        const SizedBox(height: 8),
+                        const Text(
+                          'Keep RouteSync running while you drive. Only the bus position is shared, never passenger locations.',
+                          style: TextStyle(fontSize: 12),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 8),
+                Card(
                   child: ListTile(
                     leading: const Icon(
                       Icons.directions_bus,
@@ -217,89 +311,6 @@ class _DriverHomeState extends State<DriverHome> {
                       ].join('\n'),
                     ),
                     isThreeLine: t['arrivalBy'] != null,
-                  ),
-                ),
-                const SizedBox(height: 8),
-                Card(
-                  child: Padding(
-                    padding: const EdgeInsets.all(16),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        ValueListenableBuilder<DateTime?>(
-                          valueListenable: _tracker!.lastFix,
-                          builder: (_, fix, _) => Row(
-                            children: [
-                              Icon(
-                                Icons.circle,
-                                size: 12,
-                                color: _tracker!.running
-                                    ? (fix == null
-                                          ? Colors.orange
-                                          : Colors.green)
-                                    : Colors.grey,
-                              ),
-                              const SizedBox(width: 8),
-                              Expanded(
-                                child: Text(
-                                  !_tracker!.running
-                                      ? 'Location sharing is off'
-                                      : fix == null
-                                      ? 'Waiting for a GPS fix'
-                                      : 'Sharing location, last sent ${fix.toLocal().toString().substring(11, 19)}',
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                        ValueListenableBuilder<String?>(
-                          valueListenable: _tracker!.error,
-                          builder: (_, e, _) => e == null
-                              ? const SizedBox.shrink()
-                              : Padding(
-                                  padding: const EdgeInsets.only(top: 8),
-                                  child: Text(
-                                    e,
-                                    style: const TextStyle(color: Colors.red),
-                                  ),
-                                ),
-                        ),
-                        if (_msg != null)
-                          Padding(
-                            padding: const EdgeInsets.only(top: 8),
-                            child: Text(
-                              _msg!,
-                              style: const TextStyle(color: Colors.red),
-                            ),
-                          ),
-                        const SizedBox(height: 12),
-                        SizedBox(
-                          width: double.infinity,
-                          child: FilledButton(
-                            onPressed: _toggle,
-                            child: Text(
-                              _tracker!.running
-                                  ? 'Stop sharing location'
-                                  : 'Start sharing location',
-                            ),
-                          ),
-                        ),
-                        const SizedBox(height: 8),
-                        SizedBox(
-                          width: double.infinity,
-                          child: OutlinedButton.icon(
-                            onPressed: _report,
-                            icon: const Icon(Icons.report_problem_outlined),
-                            label: const Text('Report a problem'),
-                          ),
-                        ),
-                        const SizedBox(height: 8),
-                        const Text(
-                          'Keep RouteSync running while you drive. Only the bus position is shared, never passenger locations.',
-                          style: TextStyle(fontSize: 12),
-                        ),
-                      ],
-                    ),
                   ),
                 ),
                 const SizedBox(height: 8),

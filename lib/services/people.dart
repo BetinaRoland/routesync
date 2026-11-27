@@ -90,6 +90,21 @@ Future<M> importCollegeData(M d) async {
     'dryRun': true,
     'errors': preview.errors,
     'notAllocatedRows': preview.notAllocated,
+    'studentPreviewRows': [
+      for (final item in preview.studentsToWrite)
+        {
+          'line': item['line'],
+          'studentId': item['id'],
+          'registerNumber': (item['data'] as Map)['registerNumber'],
+          'name': (item['data'] as Map)['name'],
+          'departmentId': (item['data'] as Map)['departmentId'],
+          'academicYear': (item['data'] as Map)['academicYear'],
+          'boardingPointId': item['boardingPointId'],
+          'boardingPointName': item['boardingPointName'],
+          'boardingPointInputId': item['boardingPointInputId'],
+          'boardingPointInputName': item['boardingPointInputName'],
+        },
+    ],
   };
   if (d['dryRun'] != false) return result;
   if (duplicatePolicy == 'update' && d['confirmedUpdates'] != true) {
@@ -375,8 +390,7 @@ Future<M> importCollegeData(M d) async {
             point['status'] == 'inactive' ||
             driver['status'] != 'active' ||
             driver['assignedBusId'] != busId ||
-            (busRegion != null &&
-                !permittedRegions.contains('$busRegion'))) {
+            (busRegion != null && !permittedRegions.contains('$busRegion'))) {
           fail('A required transport relationship changed after preview.');
         }
         final capacity = (bus['capacity'] as num?)?.toInt();

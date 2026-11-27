@@ -1,5 +1,42 @@
 # RouteSync change log
 
+## UI/UX redesign: navy, royal blue and pastel (latest)
+Visual and navigation changes only. No service, Firebase, rules, data-structure or permission changes (`lib/services/`, the three rules files, `firebase.json` and `pubspec.lock` are untouched). Everything shown is read from Firestore or the live location feed; nothing is placeholder data.
+
+**Foundation**
+- Palette (`Brand`), radii (`Rd`), soft shadows, Sora headings, pale-blue page background; light and dark themes. The light/dark choice is saved (`core/theme_controller.dart`) and a toggle is in the top bar of every role and on the login screen.
+- `assets/brand/routesync_bus_outline.png`: the outline bus sketch, extracted from the supplied reference sketch as transparent line art and tinted per theme (`BusOutline`). The old `logo.png` is a filled yellow bus and was not used as the sketch.
+- `core/components.dart`: `BusOutline`, `RsCard`, `PageHeader`, `SummaryCard`, `SectionCard`, `ActionTile`, `ThemeToggleButton`, `ErrorState`.
+
+**Navigation**
+- Admin desktop: top bar (logo, page buttons, More menu, page search, theme toggle, notifications, account and role). No sidebar. Phones: bottom bar plus drawer. Each admin workspace has a header with the bus sketch.
+
+**Pages**
+- Admin dashboard: summary cards, live fleet map, active alerts (empty groups hidden), recent transport activity (`emergencyActions`, `changeRequests`), quick actions; Super Admin also gets an "Awaiting approval" card.
+- Announcements: audience selection, message editor, live preview, published feed with audience filter.
+- Feedback: inbox cards with search, open/closed filter and inline reply.
+- Schedules: horizontal weekday tabs (Monday to Saturday) built from `collegeSchedules`, with holidays and special days that fall on the chosen weekday.
+- Fee policy: fee calculator using the app's own `computeFee`, and policy cards showing active, scheduled or ended.
+- Audit log: searchable timeline, role and action filters, expandable event cards showing every recorded field.
+- Student: bus summary card with the bus sketch, visible "Report a problem", theme toggle. Driver: theme toggle, location sharing first. Login: bus sketch and theme toggle.
+
+**Tests**
+- `tone_colors_test.dart`, `theme_controller_test.dart`, `brand_assets_test.dart`.
+
+**Not redesigned yet** (existing screens keep working with the new colours): Emergency command centre, Reports and analytics charts, Expenses dashboard, Route Admin approvals comparison, Tracking policy previews, Payment reconciliation, Bus utilisation charts, Daily allocation workspace, boarding-point and route map layouts, and the Student and Driver sub-screens.
+
+## UI/UX redesign: royal blue and white (latest)
+Visual and navigation changes only. No service, Firebase, rules, data-structure or permission changes (`lib/services/`, `firestore.rules`, `database.rules.json`, `storage.rules`, `firebase.json`, `pubspec.*` are untouched).
+
+- **Theme** (`core/theme.dart`): royal blue (`royal`, #2A5BE0) and white in light mode; a lighter blue on a near-black page in dark mode. Royal blue header in light mode, 48-high buttons, outlined buttons with a blue border, clear focus outline on inputs, bigger tab labels with a thick underline. `navy` is kept as an alias of `royal` so existing code compiles. Spacing scale `Sp`; status tones (`Tone`, `toneColor`, `toneFor`) with 4.5:1 contrast in both modes.
+- **Shared widgets** (`core/widgets.dart`): `statusPill`; `chip()` now follows the status tones in light and dark mode; error snackbars use the theme error colour; `selectedTint` (replaces `amberTint`).
+- **Admin shell** (`admin_shell.dart`): permanent side menu on screens 900 px or wider; on phones a bottom bar (Home, People, Live map, Requests, More) plus the drawer. Tab bars share the full width when there is room and scroll only on narrow phones. Fixed shortcuts to Staff accounts, Audit log and Fee policy, which used to land on Settings.
+- **Admin dashboard** (`overview_page.dart`): welcome banner, tiles grouped into "Needs attention" and "At a glance", each tile a button with an icon and chevron, 2 to 4 columns depending on width, screen-reader labels.
+- **Student** (`student_home.dart`): "Track My Bus" card and bus row merged into one summary card ("Live now" / "Not live", full-screen map button); "Report a problem" is a visible app bar button.
+- **Driver** (`driver_home.dart`): location sharing at the top with a larger button.
+- **Other screens and login:** hardcoded red, orange, green and grey replaced by theme colours. Map pins and the live-map panel keep their own colours.
+- **Tests:** `test/tone_colors_test.dart` checks status-colour contrast in light and dark mode and the old-colour mapping.
+
 ## Free edition (latest)
 Rebuilt to run on the free Firebase Spark plan, which cannot use Cloud Functions.
 

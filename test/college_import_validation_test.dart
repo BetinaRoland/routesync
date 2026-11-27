@@ -20,7 +20,11 @@ void main() {
     },
   };
   final points = {
-    'P1': {'status': 'active', 'approvalStatus': 'approved'},
+    'P1': {
+      'name': 'Main Gate',
+      'status': 'active',
+      'approvalStatus': 'approved',
+    },
   };
   final drivers = {
     'D1': {
@@ -48,6 +52,28 @@ void main() {
   };
 
   group('college import validation', () {
+    CollegeImportPreview validateStudent(
+      Map<String, dynamic> row, {
+      Map<String, ImportMap>? boardingPointsOverride,
+      bool existing = true,
+    }) {
+      final id = stableImportId('${row['registerNumber']}');
+      return validateCollegeImport(
+        busRows: const [],
+        studentRows: [row],
+        existingBuses: buses,
+        existingStudents: existing ? {id: existingStudent('U1')} : const {},
+        authenticatedUsers: {
+          'U1': {'status': 'active', 'role': 'student', 'studentId': id},
+        },
+        routes: routes,
+        boardingPoints: boardingPointsOverride ?? points,
+        drivers: drivers,
+        activeAllocationCounts: const {},
+        duplicatePolicy: 'update',
+      );
+    }
+
     test(
       'valid roster without account stays unallocated with an exact reason',
       () {
@@ -131,5 +157,77 @@ void main() {
         expect(result.notAllocated, isEmpty);
       },
     );
+
+    test('matches a boarding-point name to one approved point', () {
+      final row = studentRow('S1')
+        ..remove('boardingPointId')
+        ..['boardingPointName'] = ' main gate ';
+
+      final result = validateStudent(row);
+
+      expect(result.allocationsToCreate, hasLength(1));
+      expect(result.allocationsToCreate.single['boardingPointId'], 'P1');
+      expect(result.studentsToWrite.single['boardingPointId'], 'P1');
+      expect(result.studentsToWrite.single['boardingPointName'], 'Main Gate');
+    });
+
+    test('flags a name with no approved match for correction', () {
+      final row = studentRow('S1')
+        ..remove('boardingPointId')
+        ..['boardingPointName'] = 'Unknown Stop';
+
+      final result = validateStudent(row);
+
+      expect(result.allocationsToCreate, isEmpty);
+      expect(
+        result.notAllocated.single['reason'],
+        contains('No approved boarding point'),
+      );
+    });
+
+    test('flags duplicate approved names as ambiguous', () {
+      final row = studentRow('S1')
+        ..remove('boardingPointId')
+        ..['boardingPointName'] = 'Main Gate';
+
+      final result = validateStudent(
+        row,
+        boardingPointsOverride: {
+          ...points,
+          'P2': {
+            'name': ' main gate ',
+            'status': 'active',
+            'approvalStatus': 'approved',
+          },
+        },
+      );
+
+      expect(result.allocationsToCreate, isEmpty);
+      expect(result.notAllocated.single['reason'], contains('ambiguous'));
+    });
+
+    test('rejects a supplied boarding-point ID that does not exist', () {
+      final result = validateStudent({
+        ...studentRow('S1'),
+        'boardingPointId': 'missing',
+      });
+
+      expect(result.allocationsToCreate, isEmpty);
+      expect(result.notAllocated.single['reason'], contains('does not exist'));
+    });
+
+    test('does not use Place as the boarding point', () {
+      final row = studentRow('S1')
+        ..remove('boardingPointId')
+        ..['place'] = 'Main Gate';
+
+      final result = validateStudent(row, existing: false);
+
+      expect(result.allocationsToCreate, isEmpty);
+      expect(
+        result.notAllocated.single['reason'],
+        contains('No boarding-point ID was provided or approved'),
+      );
+    });
   });
 }

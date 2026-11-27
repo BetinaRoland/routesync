@@ -1,6 +1,7 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:material_ui/material_ui.dart';
 import '../../core/api.dart';
+import '../../core/theme.dart';
 import '../../core/widgets.dart';
 
 final _fs = FirebaseFirestore.instance;
@@ -66,7 +67,9 @@ class DevicesPage extends StatelessWidget {
         return ListTile(
           leading: Icon(
             Icons.satellite_alt_outlined,
-            color: active ? Colors.green : Colors.grey,
+            color: active
+                ? toneColor(context, Tone.success)
+                : toneColor(context, Tone.neutral),
           ),
           title: Text('${v['deviceId']}'),
           subtitle: Wrap(

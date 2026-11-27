@@ -3,7 +3,7 @@ import 'package:flutter/foundation.dart';
 import 'package:material_ui/material_ui.dart';
 import '../core/api.dart';
 import '../core/auth_storage.dart';
-import '../core/theme.dart';
+import '../core/components.dart';
 import 'register_page.dart';
 
 class LoginPage extends StatefulWidget {
@@ -171,25 +171,22 @@ class _LoginPageState extends State<LoginPage> {
             constraints: const BoxConstraints(maxWidth: 400),
             child: Column(
               children: [
-                Image.asset(
-                  'assets/logo_small.png',
-                  height: 150,
-                  errorBuilder: (_, _, _) => const Icon(
-                    Icons.directions_bus_filled,
-                    size: 72,
-                    color: navy,
-                  ),
+                const Align(
+                  alignment: Alignment.centerRight,
+                  child: ThemeToggleButton(),
                 ),
                 Text(
                   'RouteSync',
                   style: Theme.of(context).textTheme.headlineMedium?.copyWith(
-                    color: navy,
+                    color: Theme.of(context).colorScheme.primary,
                     fontWeight: FontWeight.bold,
                   ),
                 ),
                 const SizedBox(height: 4),
                 const Text('College bus tracking and management'),
-                const SizedBox(height: 28),
+                const SizedBox(height: 12),
+                const BusOutline(height: 64, opacity: 0.85),
+                const SizedBox(height: 20),
                 TextField(
                   controller: _email,
                   keyboardType: TextInputType.emailAddress,
@@ -244,7 +241,9 @@ class _LoginPageState extends State<LoginPage> {
                     padding: const EdgeInsets.only(top: 12),
                     child: Text(
                       _error!,
-                      style: const TextStyle(color: Colors.red),
+                      style: TextStyle(
+                        color: Theme.of(context).colorScheme.error,
+                      ),
                     ),
                   ),
                 const SizedBox(height: 20),

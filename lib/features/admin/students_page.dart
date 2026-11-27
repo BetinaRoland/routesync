@@ -4,6 +4,7 @@ import 'package:csv/csv.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:material_ui/material_ui.dart';
 import '../../core/api.dart';
+import '../../core/theme.dart';
 import '../../core/widgets.dart';
 
 class StudentsPage extends StatefulWidget {
@@ -159,11 +160,13 @@ class _StudentsPageState extends State<StudentsPage> {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   if (hasActiveAllocation)
-                    const Padding(
-                      padding: EdgeInsets.only(bottom: 12),
+                    Padding(
+                      padding: const EdgeInsets.only(bottom: 12),
                       child: Text(
                         'This student has an active bus allocation. The currently selected stop cannot be removed until they are explicitly reallocated.',
-                        style: TextStyle(color: Colors.red),
+                        style: TextStyle(
+                          color: toneColor(context, Tone.danger),
+                        ),
                       ),
                     ),
                   if (approved.isEmpty)
@@ -450,6 +453,7 @@ class _ImportPageState extends State<ImportPage> {
     'email': 'Email',
     'mobile': 'Mobile (optional)',
     'place': 'Place (optional)',
+    'boardingPointName': 'Boarding Point Name (optional)',
     'busId': 'Bus ID (optional)',
     'busNumber': 'Bus number (optional)',
     'routeId': 'Existing route ID (optional)',
@@ -476,6 +480,12 @@ class _ImportPageState extends State<ImportPage> {
     'email': ['email', 'emailaddress'],
     'mobile': ['mobile', 'mobilenumber', 'phone', 'contactnumber'],
     'place': ['place', 'region', 'address'],
+    'boardingPointName': [
+      'boardingpointname',
+      'boardingpoint',
+      'stopname',
+      'stop',
+    ],
     'boardingPointId': ['boardingpointid', 'stopid'],
   };
 
@@ -549,7 +559,7 @@ class _ImportPageState extends State<ImportPage> {
     await _run(true);
   }
 
-  void _mapColumn(bool buses, String field, int? index) {
+  Future<void> _mapColumn(bool buses, String field, int? index) async {
     final source = buses ? _buses : _students;
     if (source == null) return;
     final next = _CsvDraft(
@@ -566,6 +576,7 @@ class _ImportPageState extends State<ImportPage> {
       }
       _check = null;
     });
+    await _run(true);
   }
 
   List<Widget> _mappingFields(bool buses, _CsvDraft? source) {
@@ -659,6 +670,10 @@ class _ImportPageState extends State<ImportPage> {
     final validStudents = (_check?['validStudents'] as num?)?.toInt() ?? 0;
     final allocations = (_check?['allocations'] as num?)?.toInt() ?? 0;
     final notAllocated = asList(_check?['notAllocatedRows']);
+    final checkedStudentRows = asList(_check?['studentPreviewRows']);
+    final studentPreviewRows = checkedStudentRows.isNotEmpty
+        ? checkedStudentRows
+        : (_students?.mappedRows() ?? <Map<String, dynamic>>[]);
     return ListView(
       padding: const EdgeInsets.all(16),
       children: [
@@ -731,7 +746,7 @@ class _ImportPageState extends State<ImportPage> {
           ExpansionTile(
             title: const Text('Student row preview (first 5)'),
             children: [
-              for (final row in _students!.mappedRows().take(5))
+              for (final row in studentPreviewRows.take(5))
                 ListTile(
                   dense: true,
                   title: Text(
@@ -742,7 +757,10 @@ class _ImportPageState extends State<ImportPage> {
                     '${row['departmentId'] ?? ''}, year ${row['academicYear'] ?? ''}; '
                     'email ${row['email'] ?? ''}; bus '
                     '${row['busId'] ?? row['busNumber'] ?? 'not provided'}; '
-                    'boarding point ${row['boardingPointId'] ?? 'not provided'}',
+                    'boarding point '
+                    '${row['boardingPointName'] ?? row['boardingPointInputName'] ?? 'not resolved'}'
+                    '${row['boardingPointId'] == null ? '' : ' (${row['boardingPointId']})'}'
+                    '${row['boardingPointId'] == null && row['boardingPointInputId'] != null ? ' [ID ${row['boardingPointInputId']} not resolved]' : ''}',
                   ),
                 ),
             ],
@@ -793,7 +811,10 @@ class _ImportPageState extends State<ImportPage> {
           for (final e in errors.take(50))
             ListTile(
               dense: true,
-              leading: const Icon(Icons.error_outline, color: Colors.red),
+              leading: Icon(
+                Icons.error_outline,
+                color: toneColor(context, Tone.danger),
+              ),
               title: Text(
                 '${e['registerNumber'] ?? e['id'] ?? 'Line ${e['line']}'}',
               ),

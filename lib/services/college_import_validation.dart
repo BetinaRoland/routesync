@@ -108,7 +108,8 @@ CollegeImportPreview validateCollegeImport({
         'line': line,
         'id': id,
         'warning': true,
-        'error': 'No route ID supplied; the bus cannot receive allocations until linked.',
+        'error':
+            'No route ID supplied; the bus cannot receive allocations until linked.',
       });
     }
     final driverId = text('driverId');
@@ -149,7 +150,8 @@ CollegeImportPreview validateCollegeImport({
         'line': line,
         'id': id,
         'warning': true,
-        'error': 'No driver assignment supplied; the bus cannot receive allocations until assigned.',
+        'error':
+            'No driver assignment supplied; the bus cannot receive allocations until assigned.',
       });
     }
     final active = activeAllocationCounts[id] ?? 0;
@@ -173,8 +175,7 @@ CollegeImportPreview validateCollegeImport({
       issue('Bus status must be active, inactive, available, or unavailable.');
       continue;
     }
-    final isAvailable =
-        status != 'inactive' && status != 'unavailable';
+    final isAvailable = status != 'inactive' && status != 'unavailable';
     final data = <String, dynamic>{
       'busId': id,
       'busNumber': number,
@@ -203,8 +204,7 @@ CollegeImportPreview validateCollegeImport({
     effectiveBuses[id] = {
       ...?existing,
       ...data,
-      if (driverId.isNotEmpty &&
-          drivers[driverId]?['assignedBusId'] == null)
+      if (driverId.isNotEmpty && drivers[driverId]?['assignedBusId'] == null)
         'driverAssignmentPending': true,
     };
     busNumbers[number] = id;
@@ -279,7 +279,8 @@ CollegeImportPreview validateCollegeImport({
         'line': line,
         'id': id,
         'registerNumber': registerNumber,
-        'error': 'Existing student skipped; existing data and allocation are preserved.',
+        'error':
+            'Existing student skipped; existing data and allocation are preserved.',
       });
       continue;
     }
@@ -295,6 +296,59 @@ CollegeImportPreview validateCollegeImport({
       issue('Email address is already used by student $oldEmailOwner.');
       continue;
     }
+    final requestedPointId = text('boardingPointId');
+    final requestedPointName = text('boardingPointName');
+    final oldApprovedPointId = old?['approvedBoardingPointId'];
+    String? pointId;
+    ImportMap? point;
+    String? boardingPointIssue;
+    if (requestedPointId.isNotEmpty) {
+      pointId = requestedPointId;
+      point = boardingPoints[pointId];
+      if (point == null) {
+        boardingPointIssue = 'Boarding-point ID "$pointId" does not exist.';
+      } else if (point['status'] == 'inactive' ||
+          point['approvalStatus'] != 'approved') {
+        boardingPointIssue =
+            'Boarding point "$pointId" is not active and approved.';
+      }
+    } else if (requestedPointName.isNotEmpty) {
+      final normalizedName = requestedPointName.toLowerCase();
+      final matches = boardingPoints.entries.where((entry) {
+        final candidate = entry.value;
+        return candidate['approvalStatus'] == 'approved' &&
+            candidate['status'] != 'inactive' &&
+            '${candidate['name'] ?? ''}'.trim().toLowerCase() == normalizedName;
+      }).toList();
+      if (matches.length == 1) {
+        pointId = matches.single.key;
+        point = matches.single.value;
+      } else if (matches.isEmpty) {
+        boardingPointIssue =
+            'No approved boarding point matches "$requestedPointName".';
+      } else {
+        boardingPointIssue =
+            'Boarding point name "$requestedPointName" is ambiguous; use an existing boarding-point ID.';
+      }
+    } else if (oldApprovedPointId is String && oldApprovedPointId.isNotEmpty) {
+      pointId = oldApprovedPointId;
+      point = boardingPoints[pointId];
+      if (point == null) {
+        boardingPointIssue = 'Boarding-point ID "$pointId" does not exist.';
+      } else if (point['status'] == 'inactive' ||
+          point['approvalStatus'] != 'approved') {
+        boardingPointIssue =
+            'Boarding point "$pointId" is not active and approved.';
+      }
+    }
+    if (boardingPointIssue == null &&
+        pointId != null &&
+        oldApprovedPointId is String &&
+        oldApprovedPointId.isNotEmpty &&
+        pointId != oldApprovedPointId) {
+      boardingPointIssue =
+          'CSV boarding point does not match the student\'s existing approved boarding point.';
+    }
     final student = <String, dynamic>{
       'studentId': id,
       'registerNumber': registerNumber,
@@ -306,14 +360,18 @@ CollegeImportPreview validateCollegeImport({
       if (text('place').isNotEmpty) 'place': text('place'),
       if (text('busId').isNotEmpty) 'importBusId': text('busId'),
       if (text('busNumber').isNotEmpty) 'importBusNumber': text('busNumber'),
-      if (text('boardingPointId').isNotEmpty)
-        'importBoardingPointId': text('boardingPointId'),
+      if (boardingPointIssue == null && pointId != null)
+        'importBoardingPointId': pointId,
     };
     studentsToWrite.add({
       'id': id,
       'line': line,
       'existing': old != null,
       'data': student,
+      'boardingPointId': boardingPointIssue == null ? pointId : null,
+      'boardingPointName': boardingPointIssue == null ? (point?['name']) : null,
+      'boardingPointInputId': requestedPointId,
+      'boardingPointInputName': requestedPointName,
     });
 
     final allocationReasons = <String>[];
@@ -375,41 +433,18 @@ CollegeImportPreview validateCollegeImport({
     } else {
       allocationReasons.add('No bus was specified in the CSV.');
     }
-    final bus = resolvedBusId == null
-        ? null
-        : effectiveBuses[resolvedBusId];
+    final bus = resolvedBusId == null ? null : effectiveBuses[resolvedBusId];
     if (bus != null &&
         requestedBusId.isNotEmpty &&
         requestedBusNumber.isNotEmpty &&
         '${bus['busNumber'] ?? ''}'.trim() != requestedBusNumber) {
       allocationReasons.add('Bus ID and bus number refer to different buses.');
     }
-    String? pointId = text('boardingPointId');
-    final oldApprovedPointId = old?['approvedBoardingPointId'];
-    if (pointId.isNotEmpty &&
-        oldApprovedPointId is String &&
-        oldApprovedPointId.isNotEmpty &&
-        pointId != oldApprovedPointId) {
-      allocationReasons.add(
-        'CSV boarding point does not match the student\'s existing approved boarding point.',
-      );
+    if (boardingPointIssue != null) {
+      allocationReasons.add(boardingPointIssue);
     }
-    if (pointId.isEmpty) {
-      final existingPoint = oldApprovedPointId;
-      if (existingPoint is String && existingPoint.isNotEmpty) {
-        pointId = existingPoint;
-      }
-    }
-    if (pointId.isEmpty) {
+    if (pointId == null || pointId.isEmpty) {
       allocationReasons.add('No boarding-point ID was provided or approved.');
-    } else {
-      final point = boardingPoints[pointId];
-      if (point == null) {
-        allocationReasons.add('Boarding-point ID "$pointId" does not exist.');
-      } else if (point['status'] == 'inactive' ||
-          point['approvalStatus'] != 'approved') {
-        allocationReasons.add('Boarding point "$pointId" is not active and approved.');
-      }
     }
     final busRouteId = '${bus?['routeId'] ?? ''}'.trim();
     final requestedRouteId = text('routeId');
@@ -420,7 +455,9 @@ CollegeImportPreview validateCollegeImport({
     if (requestedRouteId.isNotEmpty &&
         busRouteId.isNotEmpty &&
         requestedRouteId != busRouteId) {
-      allocationReasons.add('Student route ID does not match the selected bus route.');
+      allocationReasons.add(
+        'Student route ID does not match the selected bus route.',
+      );
     }
     final route = routeId == null ? null : routes[routeId];
     if (routeId == null) {
@@ -429,8 +466,11 @@ CollegeImportPreview validateCollegeImport({
       allocationReasons.add('Route ID "$routeId" does not exist.');
     } else if (route['status'] != null && route['status'] != 'active') {
       allocationReasons.add('Selected route is not active.');
-    } else if (!((route['stopIds'] as List?) ?? const []).contains(pointId)) {
-      allocationReasons.add('The selected route does not serve boarding point "$pointId".');
+    } else if (pointId != null &&
+        !((route['stopIds'] as List?) ?? const []).contains(pointId)) {
+      allocationReasons.add(
+        'The selected route does not serve boarding point "$pointId".',
+      );
     }
     final busDriverId = '${bus?['driverId'] ?? ''}'.trim();
     final requestedDriverId = text('driverId');
@@ -441,7 +481,9 @@ CollegeImportPreview validateCollegeImport({
     if (requestedDriverId.isNotEmpty &&
         busDriverId.isNotEmpty &&
         requestedDriverId != busDriverId) {
-      allocationReasons.add('Student driver ID does not match the selected bus driver.');
+      allocationReasons.add(
+        'Student driver ID does not match the selected bus driver.',
+      );
     }
     final driver = driverId == null ? null : drivers[driverId];
     if (driverId == null) {
@@ -456,8 +498,7 @@ CollegeImportPreview validateCollegeImport({
       if (assignedBusId != null && assignedBusId != resolvedBusId) {
         allocationReasons.add('Assigned driver is assigned to another bus.');
       }
-      if (assignedBusId == null &&
-          bus?['driverAssignmentPending'] != true) {
+      if (assignedBusId == null && bus?['driverAssignmentPending'] != true) {
         allocationReasons.add('Assigned driver is not assigned to this bus.');
       }
       final region = bus?['permittedRegionId'];
@@ -465,7 +506,9 @@ CollegeImportPreview validateCollegeImport({
           !((driver['permittedRegionIds'] as List?) ?? const [])
               .map((e) => '$e')
               .contains('$region')) {
-        allocationReasons.add('Assigned driver is not permitted in the bus region.');
+        allocationReasons.add(
+          'Assigned driver is not permitted in the bus region.',
+        );
       }
     }
     if (bus == null) {

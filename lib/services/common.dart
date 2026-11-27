@@ -37,8 +37,9 @@ Future<Ctx> need([List<String>? roles]) async {
   if (u == null) fail('Sign in first.');
   final x = (await fs.doc('users/${u.uid}').get()).data();
   if (x == null || x['status'] != 'active') fail('Your account is not active.');
-  if (roles != null && !roles.contains(x['role']))
+  if (roles != null && !roles.contains(x['role'])) {
     fail('You are not allowed to do this.');
+  }
   return Ctx(
     u.uid,
     '${x['role']}',
@@ -153,18 +154,21 @@ Future<M> cfg() async {
     ...a,
   };
   if (o['trackingStart'] != null &&
-      '${o['trackingStart']}'.compareTo('${c['trackingStart']}') > 0)
+      '${o['trackingStart']}'.compareTo('${c['trackingStart']}') > 0) {
     c['trackingStart'] = o['trackingStart'];
+  }
   if (o['trackingEnd'] != null &&
-      '${o['trackingEnd']}'.compareTo('${c['trackingEnd']}') < 0)
+      '${o['trackingEnd']}'.compareTo('${c['trackingEnd']}') < 0) {
     c['trackingEnd'] = o['trackingEnd'];
+  }
   return c;
 }
 
 Future<M> college() async {
   final c = (await fs.doc('config/college').get()).data();
-  if (c == null || c['lat'] == null)
+  if (c == null || c['lat'] == null) {
     fail('Set the college location in System settings first.');
+  }
   return c;
 }
 
@@ -188,8 +192,9 @@ Future<({double km, List<M> geometry})> osrm(List<List<double>> lngLat) async {
     fail('The routing service is unreachable. Try again in a moment.');
   }
   final routes = j['routes'] as List?;
-  if (j['code'] != 'Ok' || routes == null || routes.isEmpty)
+  if (j['code'] != 'Ok' || routes == null || routes.isEmpty) {
     fail('No road route found for these points.');
+  }
   final r = routes.first as Map;
   final coords = ((r['geometry'] as Map)['coordinates'] as List)
       .map(
@@ -293,10 +298,12 @@ Future<String> createAuthAccount(String email, String password) async {
       password: password,
     )).user!.uid;
   } on FirebaseAuthException catch (e) {
-    if (e.code == 'email-already-in-use')
+    if (e.code == 'email-already-in-use') {
       fail('That email already has an account.');
-    if (e.code == 'weak-password')
+    }
+    if (e.code == 'weak-password') {
       fail('Choose a stronger password (8 or more characters).');
+    }
     fail('Could not create the account. ${e.message ?? ''}');
   } finally {
     try {
@@ -370,8 +377,9 @@ Future<bool> raiseAlert(
   String description,
 ) async {
   final ref = fs.doc('alerts/open_${busId}_$type');
-  if ((await ref.get()).exists)
+  if ((await ref.get()).exists) {
     return false; // no repeats for an unresolved incident
+  }
   await ref.set({
     'alertId': ref.id,
     'busId': busId,

@@ -455,7 +455,7 @@ class _BoardingPointsPageState extends State<BoardingPointsPage> {
       child: ListTile(
         leading: Icon(
           inactive ? Icons.location_disabled_outlined : Icons.location_on,
-          color: inactive ? Colors.grey : navy,
+          color: inactive ? toneColor(context, Tone.neutral) : navy,
         ),
         title: Text('${point['name'] ?? 'Unnamed boarding point'}'),
         subtitle: Column(

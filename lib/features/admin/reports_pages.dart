@@ -1148,11 +1148,14 @@ class _ExpenseFormDialogState extends State<_ExpenseFormDialog> {
                 ),
               ),
               if (_date == null)
-                const Padding(
-                  padding: EdgeInsets.only(left: 12, top: 4),
+                Padding(
+                  padding: const EdgeInsets.only(left: 12, top: 4),
                   child: Text(
                     'Expense date is required.',
-                    style: TextStyle(color: Colors.red, fontSize: 12),
+                    style: TextStyle(
+                      color: toneColor(context, Tone.danger),
+                      fontSize: 12,
+                    ),
                   ),
                 ),
               const SizedBox(height: 12),
@@ -1355,7 +1358,9 @@ class _OnTimePageState extends State<OnTimePage> {
                 t['onTime'] == true
                     ? Icons.check_circle_outline
                     : Icons.schedule,
-                color: t['onTime'] == true ? Colors.green : Colors.orange,
+                color: t['onTime'] == true
+                    ? toneColor(context, Tone.success)
+                    : toneColor(context, Tone.warning),
               ),
               title: Text(
                 '${names['${t['busId']}'] ?? t['busId']}   due ${t['arrivalBy']}',

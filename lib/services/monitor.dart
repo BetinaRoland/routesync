@@ -77,8 +77,9 @@ class MonitorService {
   ) async {
     if (routeId == null) return null;
     final c = _routes[routeId];
-    if (c != null && DateTime.now().difference(c.at).inMinutes < 10)
+    if (c != null && DateTime.now().difference(c.at).inMinutes < 10) {
       return (geo: c.geo, arrivalBy: c.arrivalBy);
+    }
     final r = (await fs.doc('routes/$routeId').get()).data();
     if (r == null) return null;
     final geo = ((r['routeGeometry'] as List?) ?? [])
@@ -108,8 +109,9 @@ class MonitorService {
         await _purge(c, now);
       }
       if (t.compareTo('${c['trackingStart']}') < 0 ||
-          t.compareTo('${c['trackingEnd']}') > 0)
+          t.compareTo('${c['trackingEnd']}') > 0) {
         return;
+      }
       if (now.difference(_workAt).inMinutes >= 10) {
         _working = await isWorkingDay(now);
         _workAt = now;
@@ -166,13 +168,14 @@ class MonitorService {
         if (b['driverId'] == null) 'no driver assigned',
         if (b['routeId'] == null) 'no route assigned',
       ];
-      if (issues.isNotEmpty)
+      if (issues.isNotEmpty) {
         await _raise(
           id,
           'preflight',
           'high',
           'Bus $busNo is not ready: ${issues.join(', ')}.',
         );
+      }
     }
     if (b['driverId'] == null && b['gpsDeviceId'] == null) return;
     final loc = live[id] as Map?, ts = (loc?['ts'] as num?)?.toInt();
@@ -220,13 +223,14 @@ class MonitorService {
               (c['deviationMeters'] as num),
           was = _dev[id] ?? 0;
       _dev[id] = off ? was + 1 : 0;
-      if (_dev[id]! >= (c['deviationUpdates'] as num))
+      if (_dev[id]! >= (c['deviationUpdates'] as num)) {
         await _raise(
           id,
           'route_deviation',
           'medium',
           'Bus is more than ${c['deviationMeters']} m from its approved route.',
         );
+      }
       if (!off && was > 0) await _clear(id, 'route_deviation');
     }
     if (rd?.arrivalBy != null && _college != null) {

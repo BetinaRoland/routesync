@@ -48,20 +48,22 @@ class _RouteChangeTabState extends State<RouteChangeTab> {
   void initState() {
     super.initState();
     _fs.collection('buses').orderBy('busNumber').get().then((s) {
-      if (mounted)
+      if (mounted) {
         setState(() {
           for (final d in s.docs) {
             _buses[d.id] = d.data();
           }
         });
+      }
     });
     _fs.collection('boardingPoints').get().then((s) {
-      if (mounted)
+      if (mounted) {
         setState(() {
           for (final d in s.docs) {
             _points[d.id] = '${d.data()['name']}';
           }
         });
+      }
     });
   }
 
@@ -73,10 +75,11 @@ class _RouteChangeTabState extends State<RouteChangeTab> {
     final routeId = id == null ? null : _buses[id]?['routeId'];
     if (routeId == null) return;
     final r = await _fs.doc('routes/$routeId').get();
-    if (mounted)
+    if (mounted) {
       setState(
         () => _stops = List<String>.from((r.data()?['stopIds'] as List?) ?? []),
       );
+    }
   }
 
   Future<void> _addStop() async {
@@ -108,8 +111,9 @@ class _RouteChangeTabState extends State<RouteChangeTab> {
           'Riders and the driver are told. The change expires after the review time and you will be asked to confirm or revert it.',
           action: 'Change route',
         ) ||
-        !mounted)
+        !mounted) {
       return;
+    }
     setState(() => _busy = true);
     await runAction(context, () async {
       final r = await Api.call('emergencyRouteChange', {
@@ -202,12 +206,13 @@ class _DriverChangeTabState extends State<DriverChangeTab> {
   void initState() {
     super.initState();
     _fs.collection('buses').orderBy('busNumber').get().then((s) {
-      if (mounted)
+      if (mounted) {
         setState(() {
           for (final d in s.docs) {
             _buses[d.id] = 'Bus ${d.data()['busNumber']}';
           }
         });
+      }
     });
     _fs.collection('drivers').orderBy('name').get().then((s) {
       if (!mounted) return;
@@ -238,8 +243,9 @@ class _DriverChangeTabState extends State<DriverChangeTab> {
           'The current driver is taken off this bus. The replacement must be authorised for the region and free.',
           action: 'Change driver',
         ) ||
-        !mounted)
+        !mounted) {
       return;
+    }
     setState(() => _busy = true);
     await runAction(context, () async {
       await Api.call('emergencyReplaceDriver', {

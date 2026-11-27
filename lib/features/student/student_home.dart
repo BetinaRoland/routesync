@@ -6,6 +6,7 @@ import 'package:material_ui/material_ui.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../../core/api.dart';
 import '../../core/session.dart';
+import '../../core/components.dart';
 import '../../core/theme.dart';
 import '../../core/widgets.dart';
 import '../../services/common.dart' show hhmm, need;
@@ -167,6 +168,95 @@ class _StudentHomeState extends State<StudentHome> {
     );
   }
 
+  /// Bus, route, pickup, driver and tracking state in one card, with a way to open the full-screen map.
+  Widget _busSummary(
+    Map<String, dynamic> transport,
+    Map<String, dynamic> stop,
+    Map<String, dynamic> driver,
+    bool tracking,
+  ) {
+    final scheme = Theme.of(context).colorScheme;
+    final muted = TextStyle(color: scheme.onSurfaceVariant);
+    return Card(
+      clipBehavior: Clip.antiAlias,
+      child: Stack(
+        children: [
+          Positioned(
+            right: 12,
+            bottom: 48,
+            child: BusOutline(height: 64, opacity: 0.16),
+          ),
+          Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                CircleAvatar(
+                  backgroundColor: scheme.primaryContainer,
+                  foregroundColor: scheme.onPrimaryContainer,
+                  child: Icon(
+                    _altBus == null ? Icons.directions_bus : Icons.alt_route,
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Text(
+                    '${_altBus == null ? 'Bus' : 'Alternative bus'} ${transport['busNumber']}'
+                    '${transport['routeName'] == null ? '' : ' · ${transport['routeName']}'}',
+                    style: Theme.of(context).textTheme.titleMedium,
+                  ),
+                ),
+                tracking
+                    ? statusPill(
+                        context,
+                        Tone.success,
+                        'Live now',
+                        icon: Icons.sensors,
+                      )
+                    : statusPill(
+                        context,
+                        Tone.neutral,
+                        'Not live',
+                        icon: Icons.sensors_off,
+                      ),
+              ],
+            ),
+            const SizedBox(height: 8),
+            Text('Pickup: ${stop['name'] ?? '-'}'),
+            if (driver.isNotEmpty)
+              Text('Driver: ${driver['name']}  ${driver['contact'] ?? ''}'),
+            if (!tracking && _transportRefreshError == null)
+              Padding(
+                padding: const EdgeInsets.only(top: 4),
+                child: Text(_trackingMessage(transport), style: muted),
+              ),
+            Align(
+              alignment: Alignment.centerRight,
+              child: TextButton.icon(
+                onPressed: () => Navigator.push(
+                  context,
+                  MaterialPageRoute<void>(
+                    builder: (_) => StudentTrackingPage(
+                      transport: transport,
+                      assignedStop: asMap(_t?['boardingPoint']),
+                      assignmentConfirmed: _transportRefreshError == null,
+                    ),
+                  ),
+                ),
+                icon: const Icon(Icons.fullscreen),
+                label: const Text('Full-screen map'),
+              ),
+            ),
+          ],
+        ),
+      ),
+        ],
+      ),
+    );
+  }
+
   Widget _busTab() {
     if (_loading) return loading();
     if (_err != null) {
@@ -194,7 +284,7 @@ class _StudentHomeState extends State<StudentHome> {
         _transportRefreshError == null && _trackingAllowed(transport);
     return Column(
       children: [
-        _trackCard(transport),
+        _busSummary(transport, stop, driver, tracking),
         if (_transportRefreshError != null)
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 16),
@@ -203,20 +293,6 @@ class _StudentHomeState extends State<StudentHome> {
               style: TextStyle(color: Theme.of(context).colorScheme.error),
             ),
           ),
-        ListTile(
-          leading: Icon(
-            _altBus == null ? Icons.directions_bus : Icons.alt_route,
-            color: navy,
-            size: 32,
-          ),
-          title: Text(
-            '${_altBus == null ? 'Bus' : 'Alternative bus'} ${transport['busNumber']}   ${transport['routeName'] ?? ''}',
-          ),
-          subtitle: Text(
-            'Pickup: ${stop['name'] ?? '-'}${driver.isNotEmpty ? '\nDriver: ${driver['name']}  ${driver['contact'] ?? ''}' : ''}',
-          ),
-          isThreeLine: driver.isNotEmpty,
-        ),
         if (_scheduleText(t).isNotEmpty)
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
@@ -378,7 +454,10 @@ class _StudentHomeState extends State<StudentHome> {
       return Column(
         children: [
           ListTile(
-            leading: const Icon(Icons.check_circle, color: Colors.green),
+            leading: Icon(
+              Icons.check_circle,
+              color: toneColor(context, Tone.success),
+            ),
             title: Text(
               'Alternative bus active: ${_activeTransport['busNumber'] ?? _altBus}',
             ),
@@ -506,6 +585,12 @@ class _StudentHomeState extends State<StudentHome> {
       appBar: AppBar(
         title: Text(titles[_tab]),
         actions: [
+          const ThemeToggleButton(),
+          IconButton(
+            tooltip: 'Report a problem',
+            icon: const Icon(Icons.report_problem_outlined),
+            onPressed: () => _menu('report'),
+          ),
           IconButton(
             tooltip: 'Refresh',
             icon: const Icon(Icons.refresh),

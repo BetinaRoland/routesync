@@ -65,13 +65,14 @@ class _InsightsPageState extends State<InsightsPage> {
     child: FutureBuilder<Map<String, dynamic>>(
       future: _f,
       builder: (context, s) {
-        if (s.hasError)
+        if (s.hasError) {
           return ListView(
             children: [
               const SizedBox(height: 120),
               EmptyState('${s.error}', icon: Icons.cloud_off),
             ],
           );
+        }
         if (!s.hasData) return loading();
         final d = s.data!,
             buses = asList(d['buses']),
@@ -94,7 +95,9 @@ class _InsightsPageState extends State<InsightsPage> {
             _line(
               ready > 0 ? Icons.warning_amber : Icons.check_circle_outline,
               '$ready students are ready but have no bus',
-              ready > 0 ? Colors.orange : Colors.green,
+              ready > 0
+                  ? toneColor(context, Tone.warning)
+                  : toneColor(context, Tone.success),
             ),
             for (final n in List<String>.from(d['readyNames'] as List))
               Padding(
@@ -106,7 +109,9 @@ class _InsightsPageState extends State<InsightsPage> {
                   ? Icons.notifications_active_outlined
                   : Icons.check_circle_outline,
               '${d['openAlerts']} open alerts',
-              (d['openAlerts'] as num) > 0 ? Colors.red : Colors.green,
+              (d['openAlerts'] as num) > 0
+                  ? toneColor(context, Tone.danger)
+                  : toneColor(context, Tone.success),
             ),
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
@@ -142,14 +147,18 @@ class _InsightsPageState extends State<InsightsPage> {
                 'No bus can be freed without exceeding seats or leaving a stop unserved.',
               ),
             for (final f in free)
-              _line(Icons.savings_outlined, f, Colors.green),
+              _line(
+                Icons.savings_outlined,
+                f,
+                toneColor(context, Tone.success),
+              ),
             for (final o in overlaps)
               _line(Icons.merge_type, 'Routes overlap: $o'),
             if (under.isNotEmpty)
               _line(
                 Icons.trending_down,
                 'Under half full: ${under.join(', ')}',
-                Colors.orange,
+                toneColor(context, Tone.warning),
               ),
             sectionLabel(context, 'Bus occupancy'),
             for (final b in buses)

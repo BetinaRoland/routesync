@@ -23,14 +23,13 @@ Future<bool> runAction(
   Future<String?> Function() fn,
 ) async {
   final m = ScaffoldMessenger.of(context);
+  final errorColor = Theme.of(context).colorScheme.error;
   try {
     final msg = await fn();
     if (msg != null) m.showSnackBar(SnackBar(content: Text(msg)));
     return true;
   } catch (e) {
-    m.showSnackBar(
-      SnackBar(content: Text('$e'), backgroundColor: Colors.red.shade700),
-    );
+    m.showSnackBar(SnackBar(content: Text('$e'), backgroundColor: errorColor));
     return false;
   }
 }
@@ -213,18 +212,23 @@ class DocList extends StatelessWidget {
 }
 
 /// Small outlined status tag.
-Widget chip(String text, [Color? color]) {
-  final c = color ?? Colors.blueGrey;
-  return Container(
-    margin: const EdgeInsets.only(right: 6, top: 4),
-    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-    decoration: BoxDecoration(
-      border: Border.all(color: c.withValues(alpha: 0.5)),
-      borderRadius: BorderRadius.circular(20),
-    ),
-    child: Text(text, style: TextStyle(fontSize: 11.5, color: c)),
-  );
-}
+Widget chip(String text, [Color? color]) => Builder(
+  builder: (context) {
+    final c = toneFor(context, color ?? Colors.blueGrey);
+    return Container(
+      margin: const EdgeInsets.only(right: 6, top: 4),
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+      decoration: BoxDecoration(
+        color: c.withValues(alpha: 0.12),
+        borderRadius: BorderRadius.circular(20),
+      ),
+      child: Text(
+        text,
+        style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: c),
+      ),
+    );
+  },
+);
 
 /// Quiet placeholder used by every empty list.
 class EmptyState extends StatelessWidget {
@@ -388,4 +392,36 @@ const alertNames = {
   'driver_other': 'Driver: problem',
 };
 
-Color amberTint(BuildContext context) => amber.withValues(alpha: 0.18);
+/// Background of the selected menu item.
+Color selectedTint(BuildContext context) =>
+    Theme.of(context).colorScheme.primaryContainer;
+
+/// Small status label: coloured text on a light tint, with an optional icon.
+Widget statusPill(
+  BuildContext context,
+  Tone tone,
+  String label, {
+  IconData? icon,
+}) {
+  final c = toneColor(context, tone);
+  return Container(
+    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+    decoration: BoxDecoration(
+      color: c.withValues(alpha: 0.12),
+      borderRadius: BorderRadius.circular(20),
+    ),
+    child: Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        if (icon != null) ...[
+          Icon(icon, size: 14, color: c),
+          const SizedBox(width: 4),
+        ],
+        Text(
+          label,
+          style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: c),
+        ),
+      ],
+    ),
+  );
+}
